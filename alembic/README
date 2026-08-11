@@ -1,0 +1,9 @@
+Async Alembic environment.
+
+The database URL is read from app.core.config.settings (i.e. from .env),
+so alembic.ini intentionally leaves sqlalchemy.url blank.
+
+Usage:
+    alembic upgrade head
+    alembic revision --autogenerate -m "describe change"
+    alembic downgrade -1
