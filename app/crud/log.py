@@ -26,6 +26,10 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
         """Aggregate logged amounts per activity over an inclusive date range.
 
         The sum and the count are computed by PostgreSQL, not in Python.
+
+        Rows are ordered by ``total_amount`` descending, with ``Activity.id``
+        ascending as a tiebreaker so that equal totals keep a stable, repeatable
+        order across requests.
         """
         statement = (
             select(
@@ -38,7 +42,7 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
             .join(Log, Log.activity_id == Activity.id)
             .where(Log.date >= period_start, Log.date <= period_end)
             .group_by(Activity.id, Activity.name, Activity.unit)
-            .order_by(func.sum(Log.amount).desc())
+            .order_by(func.sum(Log.amount).desc(), Activity.id.asc())
         )
         result = await session.execute(statement)
         return [ActivitySummary.model_validate(row) for row in result.all()]
