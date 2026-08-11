@@ -32,10 +32,23 @@ class CRUDUser(CRUDBase[User, UserCreate]):
     ) -> User:
         """Provision the user on first contact, refreshing ``username`` afterwards.
 
-        Implemented as a PostgreSQL ``INSERT ... ON CONFLICT DO UPDATE`` so two
-        concurrent first messages from the same account cannot race into a
-        duplicate-key error: the unique index on ``telegram_id`` arbitrates.
+        This runs on *every* authenticated request, so the settled case — a
+        known user whose username has not changed — must stay a plain SELECT.
+        Going straight to ``INSERT ... ON CONFLICT DO UPDATE`` would instead
+        burn a sequence value and write a new row version per request, leaving
+        ``users`` to bloat with dead tuples in proportion to traffic.
+
+        First contact still falls through to the upsert, so two concurrent
+        first messages from the same account cannot race into a duplicate-key
+        error: the unique index on ``telegram_id`` arbitrates.
         """
+        existing = await self.get_by_telegram_id(session, telegram_id)
+        if existing is not None:
+            if existing.username != username:
+                existing.username = username
+                await session.flush()
+            return existing
+
         statement = (
             pg_insert(User)
             .values(telegram_id=telegram_id, username=username)
