@@ -1,6 +1,7 @@
 """Entry-point commands and helpers shared by the other handler modules."""
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
@@ -12,6 +13,7 @@ router = Router(name="common")
 HELP_TEXT = (
     "I keep your habit journal.\n\n"
     "/log — record an activity\n"
+    "/history — edit or delete recent entries\n"
     "/summary — totals for the last few days\n"
     "/new — add a new activity\n"
     "/cancel — abandon what we were doing"
@@ -62,7 +64,14 @@ async def edit_message(
     reply is sent fresh instead.
     """
     if isinstance(callback.message, Message):
-        await callback.message.edit_text(text, reply_markup=reply_markup)
+        try:
+            await callback.message.edit_text(text, reply_markup=reply_markup)
+        except TelegramBadRequest as error:
+            # Re-rendering the identical screen — stepping Back out of an entry
+            # onto the page it came from — is a no-op Telegram rejects outright.
+            # Any other bad request is a real bug and must not be swallowed.
+            if "message is not modified" not in str(error):
+                raise
     elif callback.bot is not None and callback.message is not None:
         await callback.bot.send_message(
             callback.message.chat.id,

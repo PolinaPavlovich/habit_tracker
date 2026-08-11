@@ -49,3 +49,34 @@ class CRUDBase(Generic[ModelType, CreateSchemaType]):
         await session.flush()
         await session.refresh(instance)
         return instance
+
+    async def update(
+        self,
+        session: AsyncSession,
+        *,
+        instance: ModelType,
+        payload: BaseModel,
+    ) -> ModelType:
+        """Apply a partial payload to a row the caller has already fetched.
+
+        Takes the *instance*, never an id — see :meth:`remove` for why.
+        ``exclude_unset`` keeps an omitted field omitted rather than writing
+        the schema's default over a stored value.
+        """
+        for field, value in payload.model_dump(exclude_unset=True).items():
+            setattr(instance, field, value)
+        await session.flush()
+        await session.refresh(instance)
+        return instance
+
+    async def remove(self, session: AsyncSession, *, instance: ModelType) -> None:
+        """Delete a row the caller has already fetched.
+
+        Deliberately takes the *instance* rather than an id. Deleting by id
+        would need a lookup here, and the only lookup available on this class is
+        the tenant-blind :meth:`get` — which would let a caller destroy another
+        user's row by passing its id. Requiring an instance means ownership has
+        necessarily been proven by whatever scoped query produced it.
+        """
+        await session.delete(instance)
+        await session.flush()

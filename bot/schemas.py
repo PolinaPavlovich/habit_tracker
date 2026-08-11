@@ -28,6 +28,21 @@ class Log(BaseModel):
     date: date_type
 
 
+class LogEntry(BaseModel):
+    """A journal entry as returned by ``GET /logs/``, joined with its activity.
+
+    Distinct from :class:`Log`: the list endpoint carries the activity's name
+    and unit so a history row can be rendered without a second call.
+    """
+
+    id: int
+    activity_id: int
+    activity_name: str
+    unit: str
+    amount: Decimal
+    date: date_type
+
+
 class ActivitySummary(BaseModel):
     """Totals for a single activity inside a summary window."""
 

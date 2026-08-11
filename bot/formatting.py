@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from html import escape
 
 from bot.client import ApiError
-from bot.schemas import ActivitySummary, Summary
+from bot.schemas import ActivitySummary, LogEntry, Summary
 
 # The envelope of ``Log.amount``: Numeric(10, 2).
 MAX_AMOUNT = Decimal("99999999.99")
@@ -76,6 +76,56 @@ def _summary_row(item: ActivitySummary, width: int) -> str:
     """One padded line of the summary table, before escaping."""
     total = f"{format_amount(item.total_amount)} {item.unit}"
     return f"{item.activity_name:<{width}}  {total:>12}  ({item.entries_count})"
+
+
+def format_history_header(offset: int, page_size: int) -> str:
+    """Heading above a page of history."""
+    if offset == 0:
+        return "📋 <b>Your latest entries</b>\n\nTap one to edit or delete it."
+    first = offset + 1
+    return (
+        f"📋 <b>Entries {first}–{offset + page_size}</b>\n\n"
+        "Tap one to edit or delete it."
+    )
+
+
+def format_history_entry(entry: LogEntry) -> str:
+    """The detail view of a single entry."""
+    return (
+        f"<b>{escape(entry.activity_name)}</b>\n"
+        f"{format_amount(entry.amount)} {escape(entry.unit)} "
+        f"on {entry.date:%d %b %Y}"
+    )
+
+
+def format_delete_prompt(entry: LogEntry) -> str:
+    """Ask before removing an entry, spelling out that it is only this one."""
+    return (
+        f"{format_history_entry(entry)}\n\n"
+        "🗑 Delete this entry? It can't be undone.\n"
+        f"<i>{escape(entry.activity_name)} itself stays.</i>"
+    )
+
+
+def format_log_updated(activity_name: str, unit: str, amount: Decimal) -> str:
+    """Confirmation shown after an amount is amended.
+
+    Takes the three values it renders rather than a :class:`LogEntry`: the
+    caller has them cached in FSM state, and the alternative was inventing a
+    placeholder entry whose other fields would be lies.
+    """
+    return (
+        f"✅ Updated to <b>{format_amount(amount)} {escape(unit)}</b> "
+        f"of {escape(activity_name)}."
+    )
+
+
+def format_log_deleted(entry: LogEntry) -> str:
+    """Confirmation shown after an entry is removed."""
+    return (
+        f"🗑 Deleted <b>{format_amount(entry.amount)} {escape(entry.unit)}</b> "
+        f"of {escape(entry.activity_name)}."
+    )
 
 
 def describe_api_error(error: ApiError) -> str:

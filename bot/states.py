@@ -18,3 +18,14 @@ class ActivityStates(StatesGroup):
 
     waiting_name = State()
     waiting_unit = State()
+
+
+class HistoryStates(StatesGroup):
+    """The ``/history`` flow, while waiting for a replacement amount.
+
+    Separate from :class:`LogStates` on purpose: both wait for a typed number,
+    and a shared state would let the ``/log`` handler answer a message meant for
+    an edit — writing a new entry instead of amending the one in hand.
+    """
+
+    waiting_new_amount = State()

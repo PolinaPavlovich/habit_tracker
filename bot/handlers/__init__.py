@@ -7,12 +7,13 @@ swallow those commands as free text.
 
 from aiogram import Router
 
-from bot.handlers import activities, common, log, summary
+from bot.handlers import activities, common, history, log, summary
 
 ROUTERS: tuple[Router, ...] = (
     common.router,
     activities.router,
     log.router,
+    history.router,
     summary.router,
 )
 

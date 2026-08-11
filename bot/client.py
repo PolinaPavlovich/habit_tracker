@@ -11,7 +11,7 @@ from typing import Any, Self
 import httpx
 
 from bot.identity import Identity
-from bot.schemas import Activity, Log, Summary
+from bot.schemas import Activity, Log, LogEntry, Summary
 
 
 class ApiError(Exception):
@@ -95,6 +95,11 @@ class HabitTrackerClient:
                 _detail_of(response),
                 status_code=response.status_code,
             )
+        if response.status_code == httpx.codes.NO_CONTENT or not response.content:
+            # DELETE answers 204 with an empty body; ``response.json()`` would
+            # raise a JSONDecodeError that escapes the ApiError funnel entirely,
+            # surfacing to the handler as an unhandled exception.
+            return None
         return response.json()
 
     async def list_activities(self, identity: Identity) -> list[Activity]:
@@ -138,6 +143,50 @@ class HabitTrackerClient:
             json={"activity_id": activity_id, "amount": str(amount)},
         )
         return Log.model_validate(payload)
+
+    async def list_logs(
+        self,
+        identity: Identity,
+        *,
+        limit: int,
+        offset: int = 0,
+    ) -> list[LogEntry]:
+        """Return a page of this user's entries, newest first.
+
+        Ordering is the API's (date descending, id descending as the
+        tiebreaker); it is never re-sorted here.
+        """
+        payload = await self._request(
+            "GET",
+            "/logs/",
+            identity=identity,
+            params={"limit": limit, "offset": offset},
+        )
+        return [LogEntry.model_validate(item) for item in payload]
+
+    async def update_log(
+        self,
+        identity: Identity,
+        *,
+        log_id: int,
+        amount: Decimal,
+    ) -> Log:
+        """Change the amount of one of this user's entries.
+
+        ``amount`` is sent as a string for the same reason as in
+        :meth:`create_log` — a float round-trip would reintroduce drift.
+        """
+        payload = await self._request(
+            "PATCH",
+            f"/logs/{log_id}",
+            identity=identity,
+            json={"amount": str(amount)},
+        )
+        return Log.model_validate(payload)
+
+    async def delete_log(self, identity: Identity, *, log_id: int) -> None:
+        """Delete one of this user's entries. The activity itself is untouched."""
+        await self._request("DELETE", f"/logs/{log_id}", identity=identity)
 
     async def get_summary(self, identity: Identity, *, days: int) -> Summary:
         """Return this user's aggregated totals for the last ``days`` days."""
