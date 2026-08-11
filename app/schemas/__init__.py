@@ -3,6 +3,7 @@
 from app.schemas.activity import ActivityCreate, ActivityRead
 from app.schemas.log import LogCreate, LogRead
 from app.schemas.summary import ActivitySummary, SummaryResponse
+from app.schemas.user import UserCreate, UserRead
 
 __all__ = [
     "ActivityCreate",
@@ -11,4 +12,6 @@ __all__ = [
     "LogCreate",
     "LogRead",
     "SummaryResponse",
+    "UserCreate",
+    "UserRead",
 ]

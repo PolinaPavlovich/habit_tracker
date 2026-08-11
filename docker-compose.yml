@@ -35,8 +35,36 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
       APP_ENV: ${APP_ENV:-docker}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
     ports:
       - "8000:8000"
+    healthcheck:
+      # python, not curl: the slim image ships no HTTP client binary.
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    container_name: habit_tracker_bot
+    restart: unless-stopped
+    depends_on:
+      api:
+        # Wait for migrations to finish, so the first /log doesn't hit a 500.
+        condition: service_healthy
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # Reached over the compose network; the bot publishes no ports of its own.
+      API_URL: http://api:8000
 
 volumes:
   postgres_data:

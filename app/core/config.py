@@ -26,6 +26,10 @@ class Settings(BaseSettings):
 
     summary_window_days: int = 7
 
+    # Shared secret the Telegram bot presents on every call. Deliberately has no
+    # default: the API must refuse to boot rather than run unauthenticated.
+    internal_api_key: str
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:

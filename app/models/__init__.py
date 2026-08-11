@@ -2,5 +2,6 @@
 
 from app.models.activity import Activity
 from app.models.log import Log
+from app.models.user import User
 
-__all__ = ["Activity", "Log"]
+__all__ = ["Activity", "Log", "User"]

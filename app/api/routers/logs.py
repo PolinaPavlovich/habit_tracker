@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.api.deps import SessionDep
+from app.api.deps import CurrentUserDep, SessionDep
 from app.core.config import settings
 from app.crud import activity_crud, log_crud
 from app.schemas.log import LogCreate, LogRead
@@ -20,9 +20,21 @@ router = APIRouter(prefix="/logs", tags=["logs"])
     status_code=status.HTTP_201_CREATED,
     summary="Add an entry to the journal",
 )
-async def create_log(payload: LogCreate, session: SessionDep) -> LogRead:
-    """Record an amount for an existing activity, defaulting the date to today."""
-    activity = await activity_crud.get(session, payload.activity_id)
+async def create_log(
+    payload: LogCreate,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> LogRead:
+    """Record an amount for one of the caller's activities.
+
+    An activity owned by somebody else is reported as missing, exactly like an
+    id that does not exist, so the response never confirms it is out there.
+    """
+    activity = await activity_crud.get_for_user(
+        session,
+        user_id=user.id,
+        activity_id=payload.activity_id,
+    )
     if activity is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -40,12 +52,14 @@ async def create_log(payload: LogCreate, session: SessionDep) -> LogRead:
 )
 async def get_summary(
     session: SessionDep,
+    user: CurrentUserDep,
     days: Annotated[int, Query(ge=1, le=365)] = settings.summary_window_days,
 ) -> SummaryResponse:
-    """Sum logged amounts per activity over a window that includes today."""
+    """Sum the caller's logged amounts per activity over a window including today."""
     period_start, period_end = log_crud.period_bounds(days)
     items = await log_crud.get_summary(
         session,
+        user_id=user.id,
         period_start=period_start,
         period_end=period_end,
     )

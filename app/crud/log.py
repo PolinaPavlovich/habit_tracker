@@ -20,12 +20,18 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
         self,
         session: AsyncSession,
         *,
+        user_id: int,
         period_start: date_type,
         period_end: date_type,
     ) -> list[ActivitySummary]:
-        """Aggregate logged amounts per activity over an inclusive date range.
+        """Aggregate one owner's logged amounts per activity over a date range.
 
-        The sum and the count are computed by PostgreSQL, not in Python.
+        The range is inclusive. The sum and the count are computed by
+        PostgreSQL, not in Python.
+
+        Scoping happens on ``Activity.user_id``: ``logs`` carries no owner
+        column of its own, and the join onto ``activities`` was already needed
+        for the name and unit.
 
         Rows are ordered by ``total_amount`` descending, with ``Activity.id``
         ascending as a tiebreaker so that equal totals keep a stable, repeatable
@@ -40,7 +46,11 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
                 func.count(Log.id).label("entries_count"),
             )
             .join(Log, Log.activity_id == Activity.id)
-            .where(Log.date >= period_start, Log.date <= period_end)
+            .where(
+                Activity.user_id == user_id,
+                Log.date >= period_start,
+                Log.date <= period_end,
+            )
             .group_by(Activity.id, Activity.name, Activity.unit)
             .order_by(func.sum(Log.amount).desc(), Activity.id.asc())
         )
