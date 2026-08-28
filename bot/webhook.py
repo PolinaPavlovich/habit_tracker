@@ -8,8 +8,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 # Замени импорты на свои актуальные
 from bot.config import settings
 from bot.client import HabitTrackerClient
-# from bot.handlers import ROUTERS  <-- импортируй свои роутеры
-# from app.client import HabitTrackerClient <-- твой клиент
+from bot.handlers import ROUTERS
 
 bot = Bot(
     token=settings.telegram_bot_token,
@@ -18,7 +17,7 @@ bot = Bot(
 
 # Инициализируем диспетчер
 dispatcher = Dispatcher(storage=MemoryStorage())
-# dispatcher.include_routers(*ROUTERS)
+dispatcher.include_routers(*ROUTERS)
 
 # Создаем твой API-клиент
 api = HabitTrackerClient(
