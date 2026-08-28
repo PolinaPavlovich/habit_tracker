@@ -87,6 +87,11 @@ class HabitTrackerClient:
                 json=json,
                 params=params,
             )
+            # ДОБАВЬ ВОТ ЭТИ ДВЕ СТРОЧКИ:
+            if response.status_code != 200:
+                print(f"🚨 ОШИБКА API: Статус {response.status_code}, Ответ: {response.text}")
+            
+            response.raise_for_status() # Это заставит httpx выбросить понятную ошибку
         except httpx.RequestError as error:
             raise ApiError(f"Cannot reach the API: {error}") from error
 
