@@ -40,6 +40,7 @@ class HabitTrackerClient:
             base_url=base_url,
             timeout=timeout,
             headers={"X-Internal-Api-Key": api_key},
+            follow_redirects=True
         )
 
     async def __aenter__(self) -> Self:
