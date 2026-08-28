@@ -10,6 +10,8 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.db.session import engine
 
+from bot.webhook import router as telegram_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -25,6 +27,7 @@ app = FastAPI(
 )
 
 app.include_router(api_router)
+app.include_router(telegram_router)
 
 
 @app.get("/health", tags=["system"], summary="Liveness probe")
