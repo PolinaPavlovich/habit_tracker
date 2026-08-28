@@ -1,0 +1,16 @@
+# Используем официальный базовый образ AWS для Python 3.12
+FROM public.ecr.aws/lambda/python:3.12
+
+# Копируем файлик с зависимостями
+COPY requirements.txt ${LAMBDA_TASK_ROOT}
+
+# Устанавливаем библиотеки (включая наш mangum)
+RUN pip install -r requirements.txt
+
+# Копируем весь остальной код нашего трекера
+COPY . ${LAMBDA_TASK_ROOT}
+
+# Указываем Лямбде ту самую точку входа, которую мы создали.
+# ВНИМАНИЕ: если твой main.py лежит прямо в корне, оставь так. 
+# Если он в папке app, то напиши "app.main.handler"
+CMD ["app.main.handler"]
