@@ -6,7 +6,7 @@ from aiogram.types import Update
 from aiogram.fsm.storage.memory import MemoryStorage
 
 # Замени импорты на свои актуальные
-from app.core.config import settings
+from bot.config import settings
 # from bot.handlers import ROUTERS  <-- импортируй свои роутеры
 # from app.client import HabitTrackerClient <-- твой клиент
 
