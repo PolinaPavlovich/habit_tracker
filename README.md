@@ -430,9 +430,9 @@ erDiagram
 
 ---
 
-## Production Deployment on AWS EC2
+## Production Deployment on AWS
 
-> The application is deployed 'as-is' on an AWS EC2 instance.
+The application is deployed on an **AWS EC2** instance using Docker Compose. The database is hosted on **Amazon RDS (Managed PostgreSQL)** to ensure reliable and scalable data storage.
 
 <div align="center">
 
