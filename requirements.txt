@@ -6,3 +6,4 @@ alembic>=1.14
 pydantic>=2.9
 pydantic-settings>=2.6
 mangum==0.17.0
+aiogram>=3.0.0
