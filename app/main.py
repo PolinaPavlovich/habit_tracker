@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from mangum import Mangum
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -30,3 +31,5 @@ app.include_router(api_router)
 async def health() -> dict[str, str]:
     """Return a static payload used by the container healthcheck."""
     return {"status": "ok", "env": settings.app_env}
+
+handler = Mangum(app)
