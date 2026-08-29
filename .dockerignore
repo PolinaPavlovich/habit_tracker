@@ -1,0 +1,19 @@
+# Секреты и локальные конфиги
+.env
+.env.*
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# Git и кэш Python
+.git/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Логи и тесты
+*.log
+.pytest_cache/

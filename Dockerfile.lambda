@@ -1,16 +1,19 @@
-# Используем официальный базовый образ AWS для Python 3.12
+# Используем официальный образ AWS Lambda для Python 3.12 (судя по твоим логам)
 FROM public.ecr.aws/lambda/python:3.12
 
-# Копируем файлик с зависимостями
+# Копируем файл с зависимостями
 COPY requirements.txt ${LAMBDA_TASK_ROOT}
 
-# Устанавливаем библиотеки (включая наш mangum)
-RUN pip install -r requirements.txt
+# Устанавливаем библиотеки без сохранения кэша, чтобы сэкономить место
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем весь остальной код нашего трекера
-COPY . ${LAMBDA_TASK_ROOT}
+# Явно копируем только нужные директории с кодом
+COPY app/ ${LAMBDA_TASK_ROOT}/app/
+COPY bot/ ${LAMBDA_TASK_ROOT}/bot/
 
-# Указываем Лямбде ту самую точку входа, которую мы создали.
-# ВНИМАНИЕ: если твой main.py лежит прямо в корне, оставь так. 
-# Если он в папке app, то напиши "app.main.handler"
+# Если у тебя есть папка alembic или конфигурация (например, alembic.ini), раскомментируй строки ниже:
+COPY alembic/ ${LAMBDA_TASK_ROOT}/alembic/
+COPY alembic.ini ${LAMBDA_TASK_ROOT}/
+
+# Указываем точку входа для Лямбды (путь до переменной handler, куда обернут FastAPI)
 CMD ["app.main.handler"]
