@@ -15,10 +15,12 @@ We have two main tables in the database:
 2. `Log`: The activity journal. Fields: `id`, `activity_id` (FK), `amount`, `date`, `notes`, `created_at`.
 
 ## Required Endpoints
-- `POST /activities/` — create a new activity.
-- `GET /activities/` — get a list of all activities.
-- `POST /logs/` — add an entry to the journal.
+- `POST /activities` — create a new activity.
+- `GET /activities` — get a list of all activities.
+- `POST /logs` — add an entry to the journal.
 - `GET /logs/summary` — get aggregated statistics for the last 7 days (sum of amount grouped by activity_id).
+
+> **No trailing slashes on collection routes.** See the 2026-08-29 decisions log — a trailing slash is unroutable behind the AWS Lambda Function URL.
 
 ## Directory Structure Strategy
 > **Strict Rule:** Do not deviate from this structure without asking for permission.
@@ -155,3 +157,12 @@ docker compose up --build                 # full stack (needs Docker installed)
 - **`HistoryStates.waiting_new_amount` is separate from `LogStates.waiting_amount`.** Both wait for a typed number; sharing a state would let the `/log` handler answer a message meant for an edit and write a *new* entry instead of amending the one in hand.
 - **`_request` returns `None` for 204 / empty bodies.** It previously ended in `response.json()`, and only `httpx.RequestError` is funnelled into `ApiError` — so `DELETE` would have raised a `JSONDecodeError` straight past the error handling and out as an unhandled exception.
 - **`edit_message` swallows "message is not modified".** Stepping Back out of an entry re-renders a byte-identical screen, which Telegram rejects outright. Only that one message is suppressed; any other `TelegramBadRequest` still raises.
+
+## Decisions Log (2026-08-29, AWS Lambda deployment)
+
+- **Telegram webhook URL must include the path.** `setWebhook` was registered against the bare Function URL, so every update hit `POST /` — a route that does not exist — and the Lambda returned 404 in ~3 ms without ever reaching aiogram. The registered URL must be `https://<function-url>/webhook`, matching `@router.post("/webhook")` in `bot/webhook.py`. Verify with `getWebhookInfo`: a healthy webhook reports no `last_error_message` and drains `pending_update_count` to 0.
+- **Collection routes are declared as `""`, never `"/"`.** Behind the Lambda Function URL, trailing slashes are stripped before the request reaches Starlette — verified on the live deployment, where `GET /health/` and even `GET /health//` return 200 instead of the redirect Starlette would normally issue. With the routes declared as `"/"`, `GET /activities/` arrived as `/activities`, matched nothing, and Starlette's `redirect_slashes` answered 307 pointing back at `/activities/` — which was stripped again. An infinite redirect loop.
+  - **Why it surfaced as "backend unreachable":** the bot client sets `follow_redirects=True`, so httpx walked the loop until `max_redirects` and raised `httpx.TooManyRedirects`. That is a subclass of `httpx.RequestError`, so it was funnelled into `ApiError(status_code=None)` — the branch `describe_api_error` renders as "The tracker backend is unreachable right now."
+  - **How to apply:** any future collection endpoint uses `@router.get("")` under a prefix, and `bot/client.py` requests it without a trailing slash. Endpoints that already carry a path segment (`/logs/summary`, `/logs/{log_id}`, `/webhook`) are unaffected.
+- **Never call `response.raise_for_status()` in `bot/client.py`.** It raises `httpx.HTTPStatusError`, which is *not* a subclass of `httpx.RequestError` and therefore escapes the `except` that funnels failures into `ApiError` — surfacing to handlers as an unhandled exception. It also made the `if response.is_error:` block below it dead code, so deliberate API errors (409 on a duplicate name, 404 on a missing entry) lost their friendly wording. The `_request` error handling is deliberate; leave it alone.
+- **Deploying is not automatic.** These are code changes: the Lambda keeps serving the old image until it is rebuilt from `Dockerfile.lambda`, pushed to ECR, and the function updated.

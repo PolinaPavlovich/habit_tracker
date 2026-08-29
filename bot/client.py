@@ -88,11 +88,6 @@ class HabitTrackerClient:
                 json=json,
                 params=params,
             )
-            # ДОБАВЬ ВОТ ЭТИ ДВЕ СТРОЧКИ:
-            if response.status_code != 200:
-                print(f"🚨 ОШИБКА API: Статус {response.status_code}, Ответ: {response.text}")
-            
-            response.raise_for_status() # Это заставит httpx выбросить понятную ошибку
         except httpx.RequestError as error:
             raise ApiError(f"Cannot reach the API: {error}") from error
 
@@ -110,7 +105,7 @@ class HabitTrackerClient:
 
     async def list_activities(self, identity: Identity) -> list[Activity]:
         """Return every activity owned by this user."""
-        payload = await self._request("GET", "/activities/", identity=identity)
+        payload = await self._request("GET", "/activities", identity=identity)
         return [Activity.model_validate(item) for item in payload]
 
     async def create_activity(
@@ -123,7 +118,7 @@ class HabitTrackerClient:
         """Create an activity for this user. Raises 409 if the name is taken."""
         payload = await self._request(
             "POST",
-            "/activities/",
+            "/activities",
             identity=identity,
             json={"name": name, "unit": unit},
         )
@@ -144,7 +139,7 @@ class HabitTrackerClient:
         """
         payload = await self._request(
             "POST",
-            "/logs/",
+            "/logs",
             identity=identity,
             json={"activity_id": activity_id, "amount": str(amount)},
         )
@@ -164,7 +159,7 @@ class HabitTrackerClient:
         """
         payload = await self._request(
             "GET",
-            "/logs/",
+            "/logs",
             identity=identity,
             params={"limit": limit, "offset": offset},
         )

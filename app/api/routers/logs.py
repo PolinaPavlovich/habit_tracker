@@ -15,7 +15,7 @@ router = APIRouter(prefix="/logs", tags=["logs"])
 
 
 @router.post(
-    "/",
+    "",
     response_model=LogRead,
     status_code=status.HTTP_201_CREATED,
     summary="Add an entry to the journal",
@@ -46,7 +46,7 @@ async def create_log(
 
 
 @router.get(
-    "/",
+    "",
     response_model=list[LogListItem],
     summary="Recent journal entries, newest first",
 )

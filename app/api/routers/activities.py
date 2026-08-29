@@ -12,7 +12,7 @@ router = APIRouter(prefix="/activities", tags=["activities"])
 
 
 @router.post(
-    "/",
+    "",
     response_model=ActivityRead,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new activity",
@@ -38,7 +38,7 @@ async def create_activity(
 
 
 @router.get(
-    "/",
+    "",
     response_model=list[ActivityRead],
     summary="List the caller's activities",
 )
