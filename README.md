@@ -55,6 +55,17 @@ The service is **multi-tenant**. Every activity belongs to a user, identified by
 
 ---
 
+## Production Deployment on AWS
+
+The application was initially deployed on an **AWS EC2** instance using Docker Compose. The database is hosted on **Amazon RDS (Managed PostgreSQL)** to ensure reliable and scalable data storage. 
+
+To achieve high availability, reduce maintenance overhead, and eliminate idle server costs, the architecture was migrated to a serverless model:
+
+* **Compute**: **AWS Lambda** running as a container image packaged from a custom Dockerfile, ensuring consistency between local development and cloud execution.
+* **Networking & Access**: Exposed publicly via **AWS Lambda Function URL** with configured resource-based permissions (`AuthType: NONE`) to securely handle incoming webhook requests from Telegram.
+* **Infrastructure as Code (IaC)**: Fully automated deployment and stack management via **AWS CloudFormation**, allowing repeatable and consistent environment provisioning.
+* **Secret Management**: Sensitive credentials (Telegram bot tokens, database passwords, and internal API keys) are securely stored and injected via **AWS Secrets Manager**, keeping sensitive data out of the source code.
+
 ## Features
 
 - ⚡ **Async end to end** — FastAPI, SQLAlchemy 2.0 async ORM, asyncpg, httpx, aiogram.
@@ -429,10 +440,6 @@ erDiagram
 **Indexes:** `logs(activity_id)`, `logs(date)`, composite `logs(activity_id, date)` matching the summary query, plus the unique constraint `uq_activities_user_id_name`.
 
 ---
-
-## Production Deployment on AWS
-
-The application is deployed on an **AWS EC2** instance using Docker Compose. The database is hosted on **Amazon RDS (Managed PostgreSQL)** to ensure reliable and scalable data storage.
 
 <div align="center">
 
