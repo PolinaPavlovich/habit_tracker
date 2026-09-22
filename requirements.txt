@@ -9,3 +9,4 @@ mangum==0.17.0
 aiogram>=3.0.0
 httpx
 awslambdaric
+pyjwt>=2.9

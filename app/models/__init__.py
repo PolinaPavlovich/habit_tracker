@@ -2,6 +2,7 @@
 
 from app.models.activity import Activity
 from app.models.log import Log
+from app.models.qr_auth import QrAuthSession, QrSessionStatus
 from app.models.user import User
 
-__all__ = ["Activity", "Log", "User"]
+__all__ = ["Activity", "Log", "QrAuthSession", "QrSessionStatus", "User"]

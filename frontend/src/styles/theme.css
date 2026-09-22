@@ -1,0 +1,165 @@
+/*
+ * Telegram supplies theme colours as CSS custom properties on the document,
+ * and they change with the user's own Telegram theme. Every colour below is
+ * read from one of those with a hex fallback, so the same stylesheet renders
+ * correctly inside Telegram *and* in a plain browser on a TV, where none of
+ * the --tg-* variables exist.
+ */
+
+:root {
+  --surface: var(--tg-theme-bg-color, #ffffff);
+  --surface-muted: var(--tg-theme-secondary-bg-color, #f1f1f4);
+  --text: var(--tg-theme-text-color, #1c1c1e);
+  --text-hint: var(--tg-theme-hint-color, #8a8a8e);
+  --accent: var(--tg-theme-button-color, #2481cc);
+  --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  --link: var(--tg-theme-link-color, #2481cc);
+  --danger: #d1453b;
+
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  /* Respect the notch and the home indicator on a phone. */
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px
+    calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+.nav {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.nav a {
+  color: var(--text-hint);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.nav a.active {
+  color: var(--link);
+  font-weight: 600;
+}
+
+.card {
+  background: var(--surface-muted);
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.card__name {
+  font-weight: 600;
+}
+
+.card__today {
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  color: var(--text-hint);
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+input[type='text'],
+input[type='number'] {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--text-hint);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+}
+
+.button {
+  padding: 9px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button--quiet {
+  background: transparent;
+  color: var(--link);
+  padding: 4px 8px;
+}
+
+/*
+ * A Smart TV is driven by a D-pad, not a pointer, so focus has to be obvious.
+ * Telegram's MainButton does not exist there — every action needs a real
+ * focusable DOM control.
+ */
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.draft-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+.draft-error__amount {
+  text-decoration: line-through;
+}
+
+.qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.qr__frame {
+  background: #ffffff;
+  padding: 16px;
+  border-radius: 12px;
+}

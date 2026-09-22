@@ -1,17 +1,24 @@
 """Endpoints for the activity journal."""
 
 from datetime import date as date_type
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserDep, SessionDep
 from app.core.config import settings
 from app.crud import activity_crud, log_crud
 from app.schemas.log import LogCreate, LogListItem, LogRead, LogUpdate
-from app.schemas.summary import SummaryResponse
+from app.schemas.summary import ActivitySummary, DailyBucket, SummaryResponse
 
 router = APIRouter(prefix="/logs", tags=["logs"])
+
+# Above this window the per-day breakdown stops being useful and starts being a
+# payload problem: ``days`` accepts up to 365, which would be 365 buckets per
+# activity on every dashboard load. The chart only ever asks for 7.
+MAX_DAILY_BREAKDOWN_DAYS = 31
 
 
 @router.post(
@@ -83,12 +90,65 @@ async def get_summary(
         period_start=period_start,
         period_end=period_end,
     )
+    if days <= MAX_DAILY_BREAKDOWN_DAYS:
+        items = await _attach_weekly_stats(
+            session,
+            user_id=user.id,
+            items=items,
+            period_start=period_start,
+            period_end=period_end,
+            days=days,
+        )
     return SummaryResponse(
         period_start=period_start,
         period_end=period_end,
         days=days,
         items=items,
     )
+
+
+async def _attach_weekly_stats(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    items: list[ActivitySummary],
+    period_start: date_type,
+    period_end: date_type,
+    days: int,
+) -> list[ActivitySummary]:
+    """Give every activity a zero-filled bucket per day of the window.
+
+    One extra query for the whole response, not one per activity: the totals
+    arrive as a ``(activity_id, date) -> sum`` lookup and are projected onto a
+    shared skeleton of dates. That is O(1) in the number of activities, so it
+    is not an N+1.
+
+    The summing itself still happens in PostgreSQL. Only the padding of days
+    that have no rows happens here, which is shaping the response rather than
+    aggregating it.
+    """
+    totals = await log_crud.get_daily_totals(
+        session,
+        user_id=user_id,
+        period_start=period_start,
+        period_end=period_end,
+    )
+    skeleton = log_crud.daily_skeleton(period_start, days)
+    return [
+        item.model_copy(
+            update={
+                "weekly_stats": [
+                    DailyBucket(
+                        date=day,
+                        label=day.strftime("%a"),
+                        value=totals.get((item.activity_id, day), Decimal("0.00")),
+                    )
+                    for day in skeleton
+                ]
+            }
+        )
+        for item in items
+    ]
 
 
 # Everything below matches "/logs/{log_id}". It must stay declared *after*

@@ -2,6 +2,7 @@
 
 from datetime import date as date_type
 from datetime import timedelta
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,6 +130,49 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
         )
         result = await session.execute(statement)
         return [ActivitySummary.model_validate(row) for row in result.all()]
+
+    async def get_daily_totals(
+        self,
+        session: AsyncSession,
+        *,
+        user_id: int,
+        period_start: date_type,
+        period_end: date_type,
+    ) -> dict[tuple[int, date_type], Decimal]:
+        """Sum one owner's amounts per activity *per day* over an inclusive range.
+
+        Grouped on ``Log.date`` — the day the entry is *for* — and never on
+        ``created_at``, which is the row's insert timestamp. A backdated entry
+        would otherwise land on the day it was typed rather than the day it
+        happened. ``created_at`` is also ``TIMESTAMPTZ``, so truncating it to a
+        date would do so in the session timezone (UTC on Lambda) and drop late
+        evening entries into the following day. ``Log.date`` is already a
+        ``DATE`` and is the column ``ix_logs_activity_id_date`` covers.
+
+        Returns a lookup keyed by ``(activity_id, date)``. Days with no entries
+        are simply absent; zero-filling happens where the response is shaped.
+        """
+        statement = (
+            select(
+                Log.activity_id.label("activity_id"),
+                Log.date.label("date"),
+                func.sum(Log.amount).label("total_amount"),
+            )
+            .join(Activity, Activity.id == Log.activity_id)
+            .where(
+                Activity.user_id == user_id,
+                Log.date >= period_start,
+                Log.date <= period_end,
+            )
+            .group_by(Log.activity_id, Log.date)
+        )
+        result = await session.execute(statement)
+        return {(row.activity_id, row.date): row.total_amount for row in result.all()}
+
+    @staticmethod
+    def daily_skeleton(period_start: date_type, days: int) -> list[date_type]:
+        """Return every date in the window, ascending, so absent days still render."""
+        return [period_start + timedelta(days=offset) for offset in range(days)]
 
     @staticmethod
     def period_bounds(days: int, today: date_type | None = None) -> tuple[date_type, date_type]:

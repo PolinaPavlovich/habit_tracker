@@ -166,3 +166,82 @@ docker compose up --build                 # full stack (needs Docker installed)
   - **How to apply:** any future collection endpoint uses `@router.get("")` under a prefix, and `bot/client.py` requests it without a trailing slash. Endpoints that already carry a path segment (`/logs/summary`, `/logs/{log_id}`, `/webhook`) are unaffected.
 - **Never call `response.raise_for_status()` in `bot/client.py`.** It raises `httpx.HTTPStatusError`, which is *not* a subclass of `httpx.RequestError` and therefore escapes the `except` that funnels failures into `ApiError` — surfacing to handlers as an unhandled exception. It also made the `if response.is_error:` block below it dead code, so deliberate API errors (409 on a duplicate name, 404 on a missing entry) lost their friendly wording. The `_request` error handling is deliberate; leave it alone.
 - **Deploying is not automatic.** These are code changes: the Lambda keeps serving the old image until it is rebuilt from `Dockerfile.lambda`, pushed to ECR, and the function updated.
+
+## Decisions Log (2026-09-22, React frontend — stack selected)
+
+### Stack
+- **Build tool / framework:** React via **Vite** (SPA, not Next.js — the server is FastAPI and there is no SSR requirement).
+- **State:** **Zustand**.
+- **Charts:** **Recharts** — this is what `/logs/summary` exists to feed.
+- **Routing:** **React Router**, *declarative mode* (`BrowserRouter` + JSX routes). Framework mode and data mode are both rejected: they move data loading into React Router's own server/loader layer, and this project's server is FastAPI. Routes stay JSX; fetching stays in components/stores.
+
+### Agent skills installed
+Installed with `npx skills add`, which writes to `.agents/skills/<name>/` and symlinks each into `.claude/skills/`. A `skills-lock.json` at the repo root records the pinned versions.
+
+| Skill | Source | Covers |
+| --- | --- | --- |
+| `vercel-react-best-practices` | `vercel-labs/agent-skills` (official Vercel) | React render/bundle performance, 70 rules |
+| `zustand-state-management` | `Mindrally/skills` | store design, selector re-renders, persist/devtools/immer, testing |
+| `react-router-declarative-mode` | `remix-run/agent-skills` (official React Router) | `BrowserRouter`, `Link`/`NavLink`, URL and search params |
+
+- **Recharts has no dedicated skill worth installing.** Checked `anthropics/skills`, `vercel-labs/agent-skills`, `Mindrally/skills` (265 skills, zero Recharts hits) and `existential-birds/beagle`. The `dataviz` skill that ships with Claude Code already names Recharts explicitly and loads on its own for any chart work, so nothing was added.
+- **Skill directories are committed, not ignored.** `.agents/skills/` and `.claude/skills/` are checked in so the guidance travels with the repo rather than depending on each machine running the installer.
+
+### Constraints the frontend inherits from the API
+- **No trailing slashes on collection routes** — `GET /activities`, `POST /logs`. See the 2026-08-29 entry; a trailing slash is unroutable behind the Lambda Function URL.
+- **Amounts cross JSON as strings**, never floats. `Log.amount` is `Numeric(10, 2)`; a float round-trip reintroduces exactly the drift that column exists to prevent. Parse to a decimal-safe type client-side, and send `String(amount)`.
+- **`GET /logs` is paged** (`limit` 1–50 default 10, `offset`) and already returns `activity_name` and `unit` per row, so the frontend must not N+1 back to `/activities`.
+
+### Authentication — resolved (two paths, no session cookies)
+
+**Mini App (primary path).** The React SPA reads `window.Telegram.WebApp.initData` and sends it in the `Authorization` header. FastAPI validates the HMAC-SHA-256 signature with the bot token: the secret key is `HMAC_SHA256(key="WebAppData", msg=<bot token>)`, and the `hash` field is checked against a digest over the remaining fields sorted by key and joined with newlines. Reject a stale `auth_date`. The **verified** `user.id` out of `initData` is what identifies the tenant — the browser never asserts its own identity the way the `X-Telegram-Id` header does.
+
+- **The API already held the bot token, transitively.** `app/main.py` imports `bot.webhook`, which constructs `Bot(token=BotSettings().telegram_bot_token)` at *import* time — so the API process has always needed it and would crash on boot without it. `telegram_bot_token` is now a field on `app.core.config.Settings` too, with no default: sourcing an API secret through the bot's settings class was an accident waiting to be untangled. (An earlier revision of this file claimed the API had no access to the token. That was wrong.)
+- **The bot's header auth is not replaced.** `bot/client.py` keeps sending `X-Telegram-Id` + `X-Internal-Api-Key`, which is safe because it runs server-side in its own container. So `get_current_user` must come to accept **both** schemes, not swap one for the other.
+
+**Smart TV / standalone browser.** The QR-code short-polling flow: the TV polls the backend for its pending session, the phone — already authenticated by `initData` — approves that session, and the backend then issues a standard **JWT** to the TV.
+
+- **Session cookies are rejected outright**, for both paths.
+- **This flow is not specified in this repo yet.** There is no QR, JWT, polling or session code anywhere in `app/`, and no written design for it. Endpoint shapes, token lifetime, polling interval, session expiry and the QR payload all still need to be written down here before anything is implemented.
+
+### Directory placement — `frontend/` is approved
+`frontend/` is an approved top-level directory — the third documented deviation from the strict structure, after `bot/` and `alembic/`.
+
+**Why:** it is an independent Vite project with its own `package.json`, its own toolchain, and its own deploy target — **Vercel**, separate from the Lambda that serves the API. Nesting it under `app/` would imply Python packaging and a shared build, and it has neither. This is the same reasoning that earned `bot/` its own directory and image: the boundary is enforced by the build, not by discipline.
+
+**How to apply:** `frontend/` reaches the API only over HTTP, exactly as `bot/` does. It must never import from `app/`, and the Python tooling — `alembic`, the Docker builds, `requirements.txt` — must never reach into it. The repo stays a monorepo with two deploy targets.
+
+
+## Decisions Log (2026-09-22, implementation — backend for the SPA)
+
+Built in the order below; each step was verified against a real PostgreSQL 16 container before the next began.
+
+### Daily buckets on `/logs/summary`
+- **Grouped on `Log.date`, never `func.date(created_at)`.** `logs` carries both columns and they mean different things: `date` is the day an entry is *for* (user-settable, defaults to today), `created_at` is when the row was inserted. Grouping on `created_at` silently misfiles every backdated entry, and because it is `TIMESTAMPTZ` the truncation happens in the session timezone — UTC on Lambda — so a late-evening entry lands on the following day. `Log.date` is also the column `ix_logs_activity_id_date` already covers; `created_at` would need a new expression index. **Verified:** an entry dated three days back appears on that day's bucket, not today's.
+- **Zero-filling in Python is not a violation of the aggregate-in-SQL rule.** The `SUM` and `GROUP BY` still run in PostgreSQL. Padding the days that returned no rows is shaping a response, not aggregating one. Two queries serve the whole payload — totals and daily — which is O(1) in the number of activities and therefore not an N+1.
+- **Shape:** each `items[]` entry carries `weekly_stats: [{date, label, value}]`, exactly `days` long. `value` is a `Decimal`, so Pydantic emits it as a JSON **string**; a float would reintroduce the drift `Numeric(10, 2)` exists to prevent. There is deliberately **no top-level array** — summing across activities would add kilometres to repetitions.
+- **Capped at 31 days.** `days` accepts up to 365 and buckets at that size are a payload problem, so `weekly_stats` is empty above the cap.
+- `/logs/summary` still inner-joins `logs`, so a habit with no entries has no row. **The client must left-join `GET /activities` onto it**, or a newly created habit is invisible until its first entry.
+
+### Authentication — two schemes, no fallback
+- `get_current_user` branches on the **presence of `Authorization`** and never falls back between schemes. A rejected `initData` must not be retryable as header auth, or the weaker path becomes a bypass for the stronger one. **Verified:** bad `initData` sent alongside valid bot headers is a 401, not a 200.
+- **`Authorization: tma <initData>`** requires the explicit scheme token. A bare payload was considered and rejected: it cannot be told apart from `Bearer` without guessing.
+- **Behaviour change:** a request with no credentials at all was a 422 (both headers were required by FastAPI's own validation) and is now a **401**. A non-numeric `X-Telegram-Id` is still a 422.
+- **One wording for every `initData` failure.** Forged, malformed and stale all return "Invalid Telegram credentials." Distinguishing them tells an attacker which half to keep working on.
+- The bot's `X-Telegram-Id` + `X-Internal-Api-Key` path is untouched and must stay that way — it runs server-side in its own container, which is why it may hold a shared secret at all.
+
+### QR login
+- **Dependency: `pyjwt`.** Chosen over python-jose (effectively unmaintained, CVE history) and Authlib (drags in `cryptography`): HS256 in PyJWT needs no C extension, so `Dockerfile.lambda` stays free of manylinux/arm64 wheel surprises.
+- **`expired` is a computed state, never a written one.** Lambda runs no scheduler, so nothing could write it at the moment it becomes true. Every query filters `expires_at > now()`, evaluated against the *database* clock.
+- **The only garbage collection is a janitor at the top of `POST /qr-auth/init`.** There is no cron; do not go looking for one.
+- **Approval and token pickup are conditional UPDATEs carrying their expected state in the WHERE clause**, with `RETURNING`. A read-then-write would let two Lambda containers both believe they won. **Verified:** five simultaneous polls against one approved session yielded exactly one token and four 404s.
+- **Consumed reads as never-existed.** Replay, a guessed id and an expired session are all the same 404 with the same wording.
+- **`sub` is the internal `user.id`.** The Telegram id is deliberately absent from the token — it would hand the account to anyone reading a shared TV's storage, and nothing downstream joins on it.
+- **`jwt_secret` is separate from `internal_api_key`** and has no default. Rotating it is the *only* revocation mechanism; there is no deny list.
+- **No global rate limit is possible in-process** — each Lambda invocation may be a fresh container, so `poll_count` bounds one session and nothing more. A real limit belongs at AWS WAF in front of the Function URL.
+- **`values_callable` on the `status` column is load-bearing.** SQLAlchemy persists a Python enum by its *name* by default, which would have written `PENDING` while migration `0003` declares `pending`.
+
+### Deployment notes
+- `app.add_middleware(CORSMiddleware, ...)` reads a comma-separated `CORS_ORIGINS`. Never `*`: the SPA sends `Authorization`, so every request preflights.
+- `TELEGRAM_BOT_TOKEN`, `JWT_SECRET`, `TELEGRAM_BOT_USERNAME` and `CORS_ORIGINS` are new required-or-recommended environment variables. `docker-compose.yml` now passes the bot token to the **api** service, which it never did despite `app/main.py` needing it at import time.
+- **Lambda still does not run migrations.** `entrypoint.sh` does; `Dockerfile.lambda`'s `CMD` is the handler. Migration `0003` must be applied to the deployed database by hand.

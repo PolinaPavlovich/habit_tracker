@@ -36,6 +36,13 @@ services:
       POSTGRES_PORT: 5432
       APP_ENV: ${APP_ENV:-docker}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:?set INTERNAL_API_KEY in .env}
+      # app.main imports bot.webhook, which builds a Bot at import time, and the
+      # API also needs this to verify Mini App initData. Without it the
+      # container fails on import, not on first request.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?set TELEGRAM_BOT_TOKEN in .env}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     ports:
       - "8000:8000"
     healthcheck:
