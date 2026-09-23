@@ -11,7 +11,7 @@
  */
 
 import { API_BASE } from '../env'
-import { authHeader } from '../stores/authStore'
+import { authHeader, useAuthStore } from '../stores/authStore'
 import type {
   Activity,
   LogListItem,
@@ -66,6 +66,17 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   if (!response.ok) {
+    // A 401 while presenting a bearer token means that token is spent — expired,
+    // or signed with a secret that has since been rotated. Dropping it here is
+    // what lets the route gate notice and send the device back to /tv; left in
+    // place it would keep satisfying the gate while every request failed.
+    //
+    // Narrowed to the bearer case on purpose: a 401 against Telegram initData
+    // says nothing about a stored token, and clearing on every 401 would log a
+    // device out for an unrelated failure.
+    if (response.status === 401 && auth?.startsWith('Bearer ')) {
+      useAuthStore.getState().clearToken()
+    }
     throw new ApiError(await describeFailure(response), response.status)
   }
 
