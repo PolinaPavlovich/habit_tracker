@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 
 import { isTelegram } from '../lib/platform'
+import { ErrorBoundary } from './ErrorBoundary'
 
 export function AppLayout() {
   return (
@@ -23,8 +24,17 @@ export function AppLayout() {
             Log in a TV
           </NavLink>
         )}
+        {/* The mirror image: a browser is the device being logged in, and
+            without this link /tv is reachable only by typing the URL. */}
+        {!isTelegram && (
+          <NavLink to="/tv" className={({ isActive }) => (isActive ? 'active' : undefined)}>
+            Web login
+          </NavLink>
+        )}
       </nav>
-      <Outlet />
+      <ErrorBoundary>
+        <Outlet />
+      </ErrorBoundary>
     </div>
   )
 }

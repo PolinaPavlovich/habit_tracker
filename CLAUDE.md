@@ -245,3 +245,17 @@ Built in the order below; each step was verified against a real PostgreSQL 16 co
 - `app.add_middleware(CORSMiddleware, ...)` reads a comma-separated `CORS_ORIGINS`. Never `*`: the SPA sends `Authorization`, so every request preflights.
 - `TELEGRAM_BOT_TOKEN`, `JWT_SECRET`, `TELEGRAM_BOT_USERNAME` and `CORS_ORIGINS` are new required-or-recommended environment variables. `docker-compose.yml` now passes the bot token to the **api** service, which it never did despite `app/main.py` needing it at import time.
 - **Lambda still does not run migrations.** `entrypoint.sh` does; `Dockerfile.lambda`'s `CMD` is the handler. Migration `0003` must be applied to the deployed database by hand.
+
+## Decisions Log (2026-09-23, frontend auth gate + token persistence)
+
+- **Unauthenticated browsers redirect to `/tv`, they do not fetch.** `RequireAuth` is a path-less gate route wrapping `/`, `/history`, `/habits/new` and `/scan`. Before it existed the dashboard mounted and called `/activities` with no credential, so a plain browser rendered the backend's `401 "Authentication required."` as though it were a failure — it is not a failure, the device just has not been logged in yet. `/tv` and the catch-all sit **outside** the gate; nesting `/tv` inside it would redirect to itself forever.
+- **The gate reads the token through the Zustand hook, not `authHeader()`.** A plain function call does not re-render, so a device would stay stranded on `/tv` after a successful QR approval.
+- **A "Web login" nav link appears outside Telegram**, mirroring the Telegram-only "Log in a TV" link. Without it `/tv` was reachable only by typing the URL.
+- **The summary response is shape-checked where it enters the app**, in `joinHabits`, not guarded at each point of use. `HabitCard` walks `weeklyStats`, and the backend deliberately empties `weekly_stats` whenever `days > 31` — `undefined.map()` there unmounts the entire tree to a blank page. `items` is coerced for the same reason. This is the API boundary, which is where shapes get validated; scattering optional chaining through the components would leave the crash one new consumer away.
+- **`ErrorBoundary` wraps the router outlet.** Without a boundary anywhere in the tree, any uncaught render error blanks the page with no way back.
+
+### Token persistence — a deliberate reversal
+- **The TV access token is now persisted to `localStorage`**, reversing the earlier decision to keep it in memory only. The in-memory store forced a fresh QR scan on **every page refresh**, which was judged worse than the exposure. Anything running on the origin can read the token, and on a shared living-room device it survives until it expires. Revisit if the token ever grants more than one account's habit data.
+- `initData` is still never stored — Telegram reissues it on every launch.
+- **Storage access is wrapped in try/catch with an in-memory fallback.** `localStorage` *throws* rather than returning null in a private window, with site data blocked, and inside some embedded webviews; an unguarded read in the persist middleware would kill the app before first paint. The fallback degrades to exactly the old behaviour.
+- **Known gap:** a persisted token that has expired still satisfies the gate, so the dashboard shows a 401 error rather than redirecting to `/tv`. The "Web login" link is the escape hatch. Clearing the token automatically on a 401 would close this and has not been done.

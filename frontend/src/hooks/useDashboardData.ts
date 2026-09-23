@@ -80,18 +80,28 @@ export function useDashboardData(): { state: DashboardStatus; reload: () => void
  * empty week — rather than silently not existing until its first entry.
  */
 function joinHabits(activities: Activity[], summary: SummaryResponse): HabitView[] {
-  const byId = new Map(summary.items.map((item) => [item.activity_id, item]))
+  // Same reasoning as `weekly_stats` below: `items` is the other array this
+  // function walks, and a response without it would crash before rendering.
+  const items = Array.isArray(summary.items) ? summary.items : []
+  const byId = new Map(items.map((item) => [item.activity_id, item]))
 
-  return activities.map((activity) => {
+  return (Array.isArray(activities) ? activities : []).map((activity) => {
     const item = byId.get(activity.id)
     if (item) {
       return {
         activityId: activity.id,
         name: item.activity_name,
         unit: item.unit,
-        total: item.total_amount,
-        entriesCount: item.entries_count,
-        weeklyStats: item.weekly_stats,
+        total: item.total_amount ?? ZERO,
+        entriesCount: item.entries_count ?? 0,
+        // Coerced, not trusted. The backend empties `weekly_stats` whenever
+        // `days` exceeds 31, and an older deployment may not send the field at
+        // all — either way `HabitCard` would reach `undefined.map()` and take
+        // the whole render down. This is the API boundary, so it is where the
+        // shape gets checked.
+        weeklyStats: Array.isArray(item.weekly_stats)
+          ? item.weekly_stats
+          : emptyWeek(summary.period_start, summary.days),
       }
     }
     return {
@@ -107,7 +117,11 @@ function joinHabits(activities: Activity[], summary: SummaryResponse): HabitView
 
 /** A zero-filled window for a habit the summary never mentioned. */
 function emptyWeek(periodStart: string, days: number): DailyBucket[] {
-  return Array.from({ length: days }, (_unused, offset) => {
+  // Guard the length: `Array.from({length: NaN})` yields an empty array and a
+  // chart with no columns at all, which reads as a rendering bug rather than an
+  // empty week.
+  const span = Number.isFinite(days) && days > 0 ? Math.min(days, SUMMARY_DAYS) : SUMMARY_DAYS
+  return Array.from({ length: span }, (_unused, offset) => {
     const date = addDaysISO(periodStart, offset)
     return { date, label: weekdayLabel(date), value: ZERO }
   })
