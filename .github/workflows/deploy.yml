@@ -45,7 +45,7 @@ jobs:
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: habit-tracker-prod # Your ECR repository name
+          ECR_REPOSITORY: habit-tracker-api # Your ECR repository name
         run: |
           # Full image URI
           IMAGE_URI=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
