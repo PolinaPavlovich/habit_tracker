@@ -1,22 +1,25 @@
 services:
-#  db:
-#    image: postgres:16-alpine
-#    container_name: habit_tracker_db
-#    restart: unless-stopped
-#    environment:
-#      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-#      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-#      POSTGRES_DB: ${POSTGRES_DB:-habit_tracker}
-#    ports:
-#      # Published so the postgres MCP server can reach it from the host.
-#      - "5432:5432"
-#    volumes:
-#      - postgres_data:/var/lib/postgresql/data
-#    healthcheck:
-#      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-habit_tracker}"]
-#      interval: 5s
-#      timeout: 5s
-#      retries: 10
+  # Local development only (started by bin/dev). Behind a profile so a plain
+  # `docker compose up`, which targets the AWS database, does not start it.
+  db:
+    image: postgres:16-alpine
+    container_name: habit_tracker_db
+    profiles: ["dev"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-habit_tracker}
+    ports:
+      # Published so the postgres MCP server can reach it from the host.
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-habit_tracker}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   api:
     build:
@@ -73,5 +76,5 @@ services:
       # Reached over the compose network; the bot publishes no ports of its own.
       API_URL: http://api:8000
 
-#volumes:
-#  postgres_data:
+volumes:
+  postgres_data:

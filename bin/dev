@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Local development: Postgres in Docker, API and Vite natively with hot reload.
+# Ctrl+C stops both servers and the database container (data is kept).
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+# .env points at the AWS database and holds production secrets. pydantic-settings
+# only falls back to .env for variables left unset, so every one that matters is
+# set here. Never drop one from this list.
+export APP_ENV=local
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=postgres
+export POSTGRES_DB=habit_tracker
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export JWT_SECRET=local-dev-only-jwt-secret-not-for-production
+export INTERNAL_API_KEY=local-dev-only-internal-api-key
+export CORS_ORIGINS=http://localhost:5173
+
+DB_CONTAINER=habit_tracker_db
+api_pid=""
+web_pid=""
+cleaned_up=0
+db_started=0
+
+cleanup() {
+  [[ $cleaned_up -eq 1 ]] && return
+  cleaned_up=1
+  trap - INT TERM EXIT
+  [[ $db_started -eq 1 ]] || return 0
+  echo
+  echo "Shutting down..."
+  # Each server runs in its own process group, so this also reaches uvicorn's
+  # reload worker and Vite's children.
+  for pid in $api_pid $web_pid; do
+    kill -TERM -- "-$pid" 2>/dev/null || true
+  done
+  for pid in $api_pid $web_pid; do
+    wait "$pid" 2>/dev/null || true
+  done
+  docker compose stop db >/dev/null 2>&1 || true
+  echo "Stopped API, frontend and $DB_CONTAINER."
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+blocker=$(docker ps --filter publish=5432 --format '{{.Names}}' | grep -vx "$DB_CONTAINER" || true)
+if [[ -n $blocker ]]; then
+  echo "Port 5432 is taken by container '$blocker'. Stop it first:" >&2
+  echo "  docker stop $blocker" >&2
+  exit 1
+fi
+
+echo "Starting Postgres..."
+db_started=1
+docker compose up -d --wait --wait-timeout 60 db
+
+echo "Applying migrations..."
+.venv/bin/alembic upgrade head
+
+echo "Seeding..."
+.venv/bin/python -m scripts.seed
+
+# setsid gives each server its own process group so cleanup can kill the whole
+# tree, and keeps Ctrl+C from reaching them before cleanup does.
+setsid .venv/bin/uvicorn app.main:app --reload --port 8000 &
+api_pid=$!
+(cd frontend && exec setsid node_modules/.bin/vite --strictPort) &
+web_pid=$!
+
+echo "API: http://localhost:8000/docs   App: http://localhost:5173   Ctrl+C to stop."
+
+# Returns as soon as either server exits; the EXIT trap then stops the other.
+wait -n "$api_pid" "$web_pid"

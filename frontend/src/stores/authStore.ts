@@ -81,6 +81,13 @@ export const useAuthStore = create<AuthState & AuthActions>()(
   ),
 )
 
+// Local dev only: log in as the seeded mock user without a QR scan. Runs after
+// the synchronous rehydrate, so it replaces a stale token from an earlier seed.
+// `vite build` turns DEV into false and drops this block from the bundle.
+if (import.meta.env.DEV && import.meta.env.VITE_DEV_TOKEN) {
+  useAuthStore.getState().setToken(import.meta.env.VITE_DEV_TOKEN)
+}
+
 /**
  * The `Authorization` header value for this device, or null when unauthenticated.
  *

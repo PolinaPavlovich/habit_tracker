@@ -101,6 +101,7 @@ flowchart TD
 
 ### Local commands
 ```bash
+bin/dev                                   # local Postgres + migrations + seed + API + Vite; Ctrl+C stops all
 .venv/bin/uvicorn app.main:app --reload   # API on :8000, docs at /docs
 .venv/bin/alembic upgrade head            # apply migrations
 docker compose up --build                 # full stack (needs Docker installed)
@@ -259,3 +260,14 @@ Built in the order below; each step was verified against a real PostgreSQL 16 co
 - `initData` is still never stored — Telegram reissues it on every launch.
 - **Storage access is wrapped in try/catch with an in-memory fallback.** `localStorage` *throws* rather than returning null in a private window, with site data blocked, and inside some embedded webviews; an unguarded read in the persist middleware would kill the app before first paint. The fallback degrades to exactly the old behaviour.
 - **A spent token clears itself.** `lib/api.ts` drops the stored token when a request that *presented a bearer token* comes back 401 — expired, or signed with a since-rotated `jwt_secret`. The gate subscribes to the store, so the next render redirects to `/tv` on its own. Without this a persisted-but-dead token keeps satisfying the gate while every request fails. Narrowed to the bearer case deliberately: a 401 against Telegram `initData` says nothing about a stored token, and clearing on every 401 would log a device out for an unrelated failure.
+
+## Decisions Log (2026-09-25, hybrid local development — `bin/dev`)
+
+- **`bin/` and `scripts/` are approved top-level directories.** `bin/dev` is the single entry point; `scripts/seed.py` is the seeder, run as `python -m scripts.seed`.
+- **`bin/dev` exports every setting that matters, overriding `.env`.** `.env` points at the AWS database and holds production secrets, and pydantic-settings falls back to it for any variable left unset. So `bin/dev` sets `APP_ENV=local`, all five `POSTGRES_*`, a dev-only `JWT_SECRET` and `INTERNAL_API_KEY`, and `CORS_ORIGINS`. Only `TELEGRAM_BOT_TOKEN` still comes from `.env`. Never drop a variable from that list.
+- **The `db` compose service is restored behind `profiles: ["dev"]`.** `docker compose up` alone does not start it; `docker compose up -d db` does. Ctrl+C runs `docker compose stop db` — the volume is kept.
+- **The env variable is `APP_ENV`, not `ENV`, and there is no `DATABASE_URL` input** — `settings.database_url` is computed from `POSTGRES_*`.
+- **No auth bypass in the backend.** `app/api/deps.py` is unchanged. The seeder mints an ordinary QR-style token with `create_tv_token` for the mock user and writes it to `frontend/.env.development.local` (gitignored via `*.local`). `authStore.ts` loads it only under `import.meta.env.DEV`, which `vite build` compiles away. A backend bypass keyed on `APP_ENV == "local"` was rejected because `app_env` **defaults** to `"local"` in `config.py`, so an unset variable on Lambda would have switched it on in production.
+- **The seeder refuses to run unless all three hold:** `APP_ENV == "local"`, `POSTGRES_HOST` is `localhost`/`127.0.0.1`, and `JWT_SECRET` starts with `local-dev-only`. The last stops a dev token ever being signed with the production key.
+- **The seeder deletes only the mock user** (`telegram_id = 999000001`); `ON DELETE CASCADE` clears its activities, logs and QR sessions. Other local accounts survive a reseed. Data uses `random.Random(42)`, so charts look the same after each run. "Frequency" is simulated as a daily probability per activity — there is no frequency column.
+- **Each server runs under `setsid`** so shutdown can kill its whole process group (uvicorn's reload worker, Vite's children). Vite runs with `--strictPort`: drifting to 5174 would fail CORS.
