@@ -18,18 +18,24 @@ jobs:
       - name: Set Environment Variables
         run: |
           # Determine the deployment environment based on the branch
+          # Plain shell variables: values written to $GITHUB_ENV are only
+          # visible from the next step on, not later in this one.
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "ENV_PREFIX=prod" >> $GITHUB_ENV
+            ENV_PREFIX=prod
             # Replace with your actual prod Lambda function name
-            echo "LAMBDA_NAME=habit-tracker-prod" >> $GITHUB_ENV 
+            LAMBDA_NAME=habit-tracker-prod
           else
-            echo "ENV_PREFIX=staging" >> $GITHUB_ENV
+            ENV_PREFIX=staging
             # Replace with your actual staging Lambda function name
-            echo "LAMBDA_NAME=habit-tracker-dev" >> $GITHUB_ENV
+            LAMBDA_NAME=habit-tracker-dev
           fi
-          
+
           # Generate the image tag (e.g., staging25 or prod26)
-          echo "IMAGE_TAG=${ENV_PREFIX}${{ github.run_number }}" >> $GITHUB_ENV
+          {
+            echo "ENV_PREFIX=$ENV_PREFIX"
+            echo "LAMBDA_NAME=$LAMBDA_NAME"
+            echo "IMAGE_TAG=${ENV_PREFIX}${{ github.run_number }}"
+          } >> "$GITHUB_ENV"
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
