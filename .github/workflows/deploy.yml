@@ -64,6 +64,37 @@ jobs:
           
           # Save the URI for the next step
           echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+          
+      - name: Run Database Migrations
+        env:
+          POSTGRES_HOST: ${{ github.ref == 'refs/heads/main' && secrets.PROD_POSTGRES_HOST || secrets.STAGING_POSTGRES_HOST }}
+          POSTGRES_USER: ${{ github.ref == 'refs/heads/main' && secrets.PROD_POSTGRES_USER || secrets.STAGING_POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ github.ref == 'refs/heads/main' && secrets.PROD_POSTGRES_PASSWORD || secrets.STAGING_POSTGRES_PASSWORD }}
+          POSTGRES_DB: ${{ github.ref == 'refs/heads/main' && secrets.PROD_POSTGRES_DB || secrets.STAGING_POSTGRES_DB }}
+          POSTGRES_PORT: "5432"
+        run: |
+          echo "Running Alembic migrations for $ENV_PREFIX environment..."
+
+          # Run the migration inside the exact image we just built, so the
+          # migration scripts match the application code.
+          # --entrypoint: the Lambda base image's own entrypoint only accepts a
+          # single handler name and rejects any other command.
+          # "-e NAME" without a value forwards the variable from this step's
+          # env, so the password never appears on the command line.
+          # The three dummy values only satisfy app.core.config.Settings, which
+          # has no defaults for them; migrations never use them.
+          docker run --rm \
+            --entrypoint alembic \
+            -e APP_ENV="$ENV_PREFIX" \
+            -e POSTGRES_HOST \
+            -e POSTGRES_PORT \
+            -e POSTGRES_USER \
+            -e POSTGRES_PASSWORD \
+            -e POSTGRES_DB \
+            -e INTERNAL_API_KEY=unused-by-migrations \
+            -e TELEGRAM_BOT_TOKEN=unused-by-migrations \
+            -e JWT_SECRET=unused-by-migrations \
+            "$IMAGE_URI" upgrade head
 
       - name: Update AWS Lambda Function Code
         run: |

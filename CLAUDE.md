@@ -271,3 +271,11 @@ Built in the order below; each step was verified against a real PostgreSQL 16 co
 - **The seeder refuses to run unless all three hold:** `APP_ENV == "local"`, `POSTGRES_HOST` is `localhost`/`127.0.0.1`, and `JWT_SECRET` starts with `local-dev-only`. The last stops a dev token ever being signed with the production key.
 - **The seeder deletes only the mock user** (`telegram_id = 999000001`); `ON DELETE CASCADE` clears its activities, logs and QR sessions. Other local accounts survive a reseed. Data uses `random.Random(42)`, so charts look the same after each run. "Frequency" is simulated as a daily probability per activity — there is no frequency column.
 - **Each server runs under `setsid`** so shutdown can kill its whole process group (uvicorn's reload worker, Vite's children). Vite runs with `--strictPort`: drifting to 5174 would fail CORS.
+
+## Decisions Log (2026-10-02, migrations run in the deploy workflow)
+
+- **`.github/workflows/deploy.yml` now runs `alembic upgrade head` before updating the Lambda**, inside the image it just built. This supersedes "Lambda still does not run migrations … applied by hand" from 2026-09-22: the Lambda itself still does not migrate, but the deploy does. A failed migration stops the job, so the Lambda keeps its old image.
+- **`--entrypoint alembic` is required.** The Lambda base image's entrypoint accepts exactly one argument (a handler name) and exits 142 on `alembic upgrade head`.
+- **The database is addressed by `POSTGRES_*`, never a `DATABASE_URL`** — `Settings` ignores that name. GitHub secrets: `STAGING_POSTGRES_{HOST,USER,PASSWORD,DB}` and `PROD_POSTGRES_{HOST,USER,PASSWORD,DB}`; the port is hardcoded to 5432. They are forwarded with value-less `-e NAME` flags so the password never sits on a command line.
+- **`INTERNAL_API_KEY`, `TELEGRAM_BOT_TOKEN` and `JWT_SECRET` are dummy values in that step.** `Settings` has no defaults for them and `alembic/env.py` imports it; migrations never read them.
+- **The database must accept connections from GitHub-hosted runners** for this step to work.
