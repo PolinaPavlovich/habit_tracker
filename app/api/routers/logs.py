@@ -62,13 +62,19 @@ async def list_logs(
     user: CurrentUserDep,
     limit: Annotated[int, Query(ge=1, le=50)] = 10,
     offset: Annotated[int, Query(ge=0)] = 0,
+    activity_id: Annotated[int | None, Query(gt=0)] = None,
 ) -> list[LogListItem]:
-    """Return a page of the caller's own entries, joined with their activities."""
+    """Return a page of the caller's own entries, joined with their activities.
+
+    ``activity_id`` narrows the page to one activity. An id the caller does not
+    own gives an empty page, the same as an activity with no entries.
+    """
     return await log_crud.get_recent_for_user(
         session,
         user_id=user.id,
         limit=limit,
         offset=offset,
+        activity_id=activity_id,
     )
 
 

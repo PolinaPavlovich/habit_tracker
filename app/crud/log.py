@@ -51,8 +51,13 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
         user_id: int,
         limit: int,
         offset: int,
+        activity_id: int | None = None,
     ) -> list[LogListItem]:
         """Return a page of this owner's entries, newest first.
+
+        ``activity_id`` narrows the page to one activity. It is an extra
+        filter on top of the owner scoping, never a replacement for it, so
+        naming somebody else's activity yields an empty page.
 
         Ordered by ``date`` descending with ``Log.id`` descending as the
         tiebreaker. The tiebreaker is required, not cosmetic: several entries
@@ -77,6 +82,8 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
             .offset(offset)
             .limit(limit)
         )
+        if activity_id is not None:
+            statement = statement.where(Log.activity_id == activity_id)
         result = await session.execute(statement)
         return [LogListItem.model_validate(row) for row in result.all()]
 
@@ -87,6 +94,16 @@ class CRUDLog(CRUDBase[Log, LogCreate]):
             .join(Activity, Activity.id == Log.activity_id)
             .where(Activity.user_id == user_id)
         )
+        result = await session.execute(statement)
+        return int(result.scalar_one())
+
+    async def count_for_activity(self, session: AsyncSession, *, activity_id: int) -> int:
+        """Number of entries under one activity.
+
+        Not scoped by owner: the caller must already hold the activity through
+        ``activity_crud.get_for_user``, which is the ownership check.
+        """
+        statement = select(func.count(Log.id)).where(Log.activity_id == activity_id)
         result = await session.execute(statement)
         return int(result.scalar_one())
 
