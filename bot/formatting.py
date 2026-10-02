@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from html import escape
 
 from bot.client import ApiError
-from bot.schemas import ActivitySummary, LogEntry, Summary
+from bot.schemas import ActivityDetail, ActivitySummary, LogEntry, Summary
 
 # The envelope of ``Log.amount``: Numeric(10, 2).
 MAX_AMOUNT = Decimal("99999999.99")
@@ -78,15 +78,52 @@ def _summary_row(item: ActivitySummary, width: int) -> str:
     return f"{item.activity_name:<{width}}  {total:>12}  ({item.entries_count})"
 
 
-def format_history_header(offset: int, page_size: int) -> str:
-    """Heading above a page of history."""
+def format_history_header(offset: int, page_size: int, activity_name: str | None = None) -> str:
+    """Heading above a page of history, naming the activity when it is narrowed to one."""
+    scope = f" of {escape(activity_name)}" if activity_name else ""
     if offset == 0:
-        return "📋 <b>Your latest entries</b>\n\nTap one to edit or delete it."
+        return f"📋 <b>Your latest entries{scope}</b>\n\nTap one to edit or delete it."
     first = offset + 1
     return (
-        f"📋 <b>Entries {first}–{offset + page_size}</b>\n\n"
+        f"📋 <b>Entries {first}–{offset + page_size}{scope}</b>\n\n"
         "Tap one to edit or delete it."
     )
+
+
+def format_entries_count(count: int) -> str:
+    """"1 entry", "12 entries"."""
+    return "1 entry" if count == 1 else f"{count} entries"
+
+
+def format_habit(activity: ActivityDetail) -> str:
+    """The detail view of a single activity."""
+    return (
+        f"<b>{escape(activity.name)}</b>\n"
+        f"Measured in {escape(activity.unit)} · {format_entries_count(activity.entries_count)}"
+    )
+
+
+def format_habit_delete_prompt(activity: ActivityDetail) -> str:
+    """Ask before removing an activity, spelling out what goes with it."""
+    if activity.entries_count:
+        loss = f"This also deletes its {format_entries_count(activity.entries_count)}."
+    else:
+        loss = "It has no entries yet."
+    return (
+        f"{format_habit(activity)}\n\n"
+        f"🗑 Delete this activity? {loss}\n"
+        "<i>It can't be undone.</i>"
+    )
+
+
+def format_habit_deleted(activity: ActivityDetail) -> str:
+    """Confirmation shown after an activity is removed."""
+    if activity.entries_count:
+        return (
+            f"🗑 Deleted <b>{escape(activity.name)}</b> and its "
+            f"{format_entries_count(activity.entries_count)}."
+        )
+    return f"🗑 Deleted <b>{escape(activity.name)}</b>."
 
 
 def format_history_entry(entry: LogEntry) -> str:

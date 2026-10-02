@@ -19,6 +19,12 @@ class Activity(BaseModel):
     unit: str
 
 
+class ActivityDetail(Activity):
+    """One activity as returned by ``GET /activities/{id}``, with its entry count."""
+
+    entries_count: int
+
+
 class Log(BaseModel):
     """A journal entry as returned by ``POST /logs/``."""
 

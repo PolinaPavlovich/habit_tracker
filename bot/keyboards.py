@@ -20,6 +20,9 @@ CUSTOM_AMOUNT = "custom"
 # Activity names are clipped past this in a history button; Telegram truncates
 # long captions itself, and it drops the amount and date rather than the name.
 MAX_LABEL_NAME = 18
+# The ``activity_id`` a history callback carries when it is not filtered.
+# Real ids start at 1.
+ALL_ACTIVITIES = 0
 
 
 class ActivityCB(CallbackData, prefix="act"):
@@ -51,10 +54,17 @@ class NavCB(CallbackData, prefix="nav"):
 
 
 class HistoryCB(CallbackData, prefix="hst"):
-    """The user tapped one entry in ``/history`` to open its detail view."""
+    """The user tapped one entry in ``/history`` to open its detail view.
+
+    ``activity_id`` is carried by every history callback: ``0`` means the whole
+    journal, anything else the entries of that one activity. It rides in the
+    callback rather than in FSM state so an old message still knows which list
+    it belongs to.
+    """
 
     log_id: int
     offset: int
+    activity_id: int = ALL_ACTIVITIES
 
 
 class HistoryPageCB(CallbackData, prefix="hpg"):
@@ -66,6 +76,7 @@ class HistoryPageCB(CallbackData, prefix="hpg"):
     """
 
     offset: int
+    activity_id: int = ALL_ACTIVITIES
 
 
 class LogEditCB(CallbackData, prefix="led"):
@@ -73,6 +84,7 @@ class LogEditCB(CallbackData, prefix="led"):
 
     log_id: int
     offset: int
+    activity_id: int = ALL_ACTIVITIES
 
 
 class LogDeleteCB(CallbackData, prefix="ldl"):
@@ -83,6 +95,35 @@ class LogDeleteCB(CallbackData, prefix="ldl"):
 
     log_id: int
     offset: int
+    confirm: bool
+    activity_id: int = ALL_ACTIVITIES
+
+
+class HabitCB(CallbackData, prefix="hab"):
+    """The user opened one activity in ``/habits``."""
+
+    activity_id: int
+
+
+class HabitListCB(CallbackData, prefix="hbl"):
+    """Back to the ``/habits`` list.
+
+    Its own factory for the same reason as :class:`HistoryPageCB`:
+    ``NavCB(action="back")`` belongs to the ``/log`` flow.
+    """
+
+
+class HabitEditCB(CallbackData, prefix="hed"):
+    """The user asked to change an activity's name or its unit."""
+
+    activity_id: int
+    field: Literal["name", "unit"]
+
+
+class HabitDeleteCB(CallbackData, prefix="hdl"):
+    """Delete an activity: ``confirm`` false asks, true carries it out."""
+
+    activity_id: int
     confirm: bool
 
 
@@ -145,17 +186,19 @@ def history_keyboard(
     offset: int,
     page_size: int,
     has_more: bool,
+    activity_id: int = ALL_ACTIVITIES,
 ) -> InlineKeyboardMarkup:
     """One button per entry, newest first, with paging when there is more.
 
     Entries get a row each: an activity name plus amount and date is too wide to
-    pair up without Telegram truncating it.
+    pair up without Telegram truncating it. A list narrowed to one activity
+    also gets a way back to that activity's screen.
     """
     builder = InlineKeyboardBuilder()
     for entry in entries:
         builder.button(
             text=history_button_label(entry),
-            callback_data=HistoryCB(log_id=entry.id, offset=offset),
+            callback_data=HistoryCB(log_id=entry.id, offset=offset, activity_id=activity_id),
         )
     builder.adjust(1)
 
@@ -163,48 +206,129 @@ def history_keyboard(
     if offset > 0:
         pager.button(
             text="⬅️ Newer",
-            callback_data=HistoryPageCB(offset=max(0, offset - page_size)),
+            callback_data=HistoryPageCB(
+                offset=max(0, offset - page_size),
+                activity_id=activity_id,
+            ),
         )
     if has_more:
         pager.button(
             text="Older ➡️",
-            callback_data=HistoryPageCB(offset=offset + page_size),
+            callback_data=HistoryPageCB(offset=offset + page_size, activity_id=activity_id),
         )
     pager.adjust(2)
     builder.attach(pager)
+
+    if activity_id != ALL_ACTIVITIES:
+        footer = InlineKeyboardBuilder()
+        footer.button(text="⬅️ Back to activity", callback_data=HabitCB(activity_id=activity_id))
+        builder.attach(footer)
     return builder.as_markup()
 
 
-def history_entry_keyboard(log_id: int, offset: int) -> InlineKeyboardMarkup:
+def history_entry_keyboard(
+    log_id: int,
+    offset: int,
+    activity_id: int = ALL_ACTIVITIES,
+) -> InlineKeyboardMarkup:
     """Actions for a single entry: edit its amount, delete it, or go back."""
     builder = InlineKeyboardBuilder()
     builder.button(
         text="✏️ Edit amount",
-        callback_data=LogEditCB(log_id=log_id, offset=offset),
+        callback_data=LogEditCB(log_id=log_id, offset=offset, activity_id=activity_id),
     )
     builder.button(
         text="🗑 Delete",
-        callback_data=LogDeleteCB(log_id=log_id, offset=offset, confirm=False),
+        callback_data=LogDeleteCB(
+            log_id=log_id,
+            offset=offset,
+            confirm=False,
+            activity_id=activity_id,
+        ),
     )
     builder.adjust(2)
 
     footer = InlineKeyboardBuilder()
-    footer.button(text="⬅️ Back", callback_data=HistoryPageCB(offset=offset))
+    footer.button(
+        text="⬅️ Back",
+        callback_data=HistoryPageCB(offset=offset, activity_id=activity_id),
+    )
     builder.attach(footer)
     return builder.as_markup()
 
 
-def delete_confirm_keyboard(log_id: int, offset: int) -> InlineKeyboardMarkup:
+def delete_confirm_keyboard(
+    log_id: int,
+    offset: int,
+    activity_id: int = ALL_ACTIVITIES,
+) -> InlineKeyboardMarkup:
     """The second tap of a deletion, kept separate because it cannot be undone."""
     builder = InlineKeyboardBuilder()
     builder.button(
         text="✅ Yes, delete",
-        callback_data=LogDeleteCB(log_id=log_id, offset=offset, confirm=True),
+        callback_data=LogDeleteCB(
+            log_id=log_id,
+            offset=offset,
+            confirm=True,
+            activity_id=activity_id,
+        ),
     )
     builder.button(
         text="✖️ Keep it",
-        callback_data=HistoryCB(log_id=log_id, offset=offset),
+        callback_data=HistoryCB(log_id=log_id, offset=offset, activity_id=activity_id),
     )
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def habits_keyboard(activities: Sequence[Activity]) -> InlineKeyboardMarkup:
+    """One row per activity for ``/habits``, plus a way to create another."""
+    builder = InlineKeyboardBuilder()
+    for activity in activities:
+        name = activity.name
+        if len(name) > MAX_LABEL_NAME:
+            name = f"{name[: MAX_LABEL_NAME - 1]}…"
+        builder.button(
+            text=f"{name} · {activity.unit}",
+            callback_data=HabitCB(activity_id=activity.id),
+        )
+    builder.button(text="➕ New activity", callback_data=NavCB(action="new"))
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def habit_keyboard(activity_id: int) -> InlineKeyboardMarkup:
+    """Everything that can be done to one activity."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✏️ Rename",
+        callback_data=HabitEditCB(activity_id=activity_id, field="name"),
+    )
+    builder.button(
+        text="📏 Change unit",
+        callback_data=HabitEditCB(activity_id=activity_id, field="unit"),
+    )
+    builder.button(
+        text="📋 Entries",
+        callback_data=HistoryPageCB(offset=0, activity_id=activity_id),
+    )
+    builder.button(
+        text="🗑 Delete",
+        callback_data=HabitDeleteCB(activity_id=activity_id, confirm=False),
+    )
+    builder.button(text="⬅️ Back", callback_data=HabitListCB())
+    builder.adjust(2, 2, 1)
+    return builder.as_markup()
+
+
+def habit_delete_confirm_keyboard(activity_id: int) -> InlineKeyboardMarkup:
+    """The second tap of deleting an activity and everything logged under it."""
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="✅ Yes, delete it all",
+        callback_data=HabitDeleteCB(activity_id=activity_id, confirm=True),
+    )
+    builder.button(text="✖️ Keep it", callback_data=HabitCB(activity_id=activity_id))
     builder.adjust(1)
     return builder.as_markup()
 

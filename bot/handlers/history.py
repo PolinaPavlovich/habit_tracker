@@ -1,7 +1,11 @@
 """The ``/history`` flow: browse recent entries, then amend or remove one.
 
 Only journal entries are touched here. Deleting an entry leaves its activity in
-place — removing an activity is not reachable from this flow at all.
+place — removing an activity lives in ``/habits``.
+
+The same screens also serve the "Entries" button of one activity in
+``/habits``: every callback carries an ``activity_id``, where
+``ALL_ACTIVITIES`` means the whole journal.
 """
 
 from aiogram import F, Router
@@ -22,6 +26,7 @@ from bot.formatting import (
 from bot.handlers.common import edit_message
 from bot.identity import Identity, require_identity
 from bot.keyboards import (
+    ALL_ACTIVITIES,
     HistoryCB,
     HistoryPageCB,
     LogDeleteCB,
@@ -38,6 +43,7 @@ router = Router(name="history")
 
 PAGE_SIZE = 10
 EMPTY = "📋 Nothing logged yet. Send /log to record something."
+EMPTY_FOR_ACTIVITY = "📋 Nothing logged for this activity yet. Send /log to record something."
 GONE = "⚠️ That entry is already gone."
 
 
@@ -80,7 +86,7 @@ async def cb_page(
     """Render another page — and the way back out of a detail view."""
     await callback.answer()
     await state.set_state(None)
-    await _render_page(callback, api, callback_data.offset)
+    await _render_page(callback, api, callback_data.offset, callback_data.activity_id)
 
 
 @router.callback_query(HistoryCB.filter())
@@ -94,15 +100,17 @@ async def cb_open_entry(
     await callback.answer()
     await state.set_state(None)
     identity = require_identity(callback.from_user)
-    entry = await _find(api, identity, callback_data.log_id, callback_data.offset)
+    entry = await _find(api, identity, callback_data)
     if entry is None:
-        await _render_page(callback, api, callback_data.offset, notice=GONE)
+        await _render_page(
+            callback, api, callback_data.offset, callback_data.activity_id, notice=GONE
+        )
         return
 
     await edit_message(
         callback,
         format_history_entry(entry),
-        history_entry_keyboard(entry.id, callback_data.offset),
+        history_entry_keyboard(entry.id, callback_data.offset, callback_data.activity_id),
     )
 
 
@@ -116,9 +124,11 @@ async def cb_edit(
     """Ask for the replacement amount."""
     await callback.answer()
     identity = require_identity(callback.from_user)
-    entry = await _find(api, identity, callback_data.log_id, callback_data.offset)
+    entry = await _find(api, identity, callback_data)
     if entry is None:
-        await _render_page(callback, api, callback_data.offset, notice=GONE)
+        await _render_page(
+            callback, api, callback_data.offset, callback_data.activity_id, notice=GONE
+        )
         return
 
     await state.set_state(HistoryStates.waiting_new_amount)
@@ -185,15 +195,17 @@ async def cb_delete_ask(
     """Confirm before removing, since nothing here can be undone."""
     await callback.answer()
     identity = require_identity(callback.from_user)
-    entry = await _find(api, identity, callback_data.log_id, callback_data.offset)
+    entry = await _find(api, identity, callback_data)
     if entry is None:
-        await _render_page(callback, api, callback_data.offset, notice=GONE)
+        await _render_page(
+            callback, api, callback_data.offset, callback_data.activity_id, notice=GONE
+        )
         return
 
     await edit_message(
         callback,
         format_delete_prompt(entry),
-        delete_confirm_keyboard(entry.id, callback_data.offset),
+        delete_confirm_keyboard(entry.id, callback_data.offset, callback_data.activity_id),
     )
 
 
@@ -206,9 +218,11 @@ async def cb_delete_confirm(
     """Carry the deletion out and report what went."""
     await callback.answer()
     identity = require_identity(callback.from_user)
-    entry = await _find(api, identity, callback_data.log_id, callback_data.offset)
+    entry = await _find(api, identity, callback_data)
     if entry is None:
-        await _render_page(callback, api, callback_data.offset, notice=GONE)
+        await _render_page(
+            callback, api, callback_data.offset, callback_data.activity_id, notice=GONE
+        )
         return
 
     try:
@@ -228,6 +242,7 @@ async def _fetch_page(
     identity: Identity,
     *,
     offset: int,
+    activity_id: int = ALL_ACTIVITIES,
 ) -> tuple[list[LogEntry], bool] | str:
     """Fetch one page, or return the message to show if the call failed.
 
@@ -235,7 +250,12 @@ async def _fetch_page(
     without a second round trip or a count endpoint.
     """
     try:
-        entries = await api.list_logs(identity, limit=PAGE_SIZE + 1, offset=offset)
+        entries = await api.list_logs(
+            identity,
+            limit=PAGE_SIZE + 1,
+            offset=offset,
+            activity_id=None if activity_id == ALL_ACTIVITIES else activity_id,
+        )
     except ApiError as error:
         return describe_api_error(error)
     return entries[:PAGE_SIZE], len(entries) > PAGE_SIZE
@@ -245,27 +265,45 @@ async def _render_page(
     callback: CallbackQuery,
     api: HabitTrackerClient,
     offset: int,
+    activity_id: int = ALL_ACTIVITIES,
     *,
     notice: str | None = None,
 ) -> None:
     """Rewrite the message with a page of history, optionally led by a notice."""
     identity = require_identity(callback.from_user)
-    page = await _fetch_page(api, identity, offset=offset)
+    page = await _fetch_page(api, identity, offset=offset, activity_id=activity_id)
     if isinstance(page, str):
         await edit_message(callback, page)
         return
 
     entries, has_more = page
+    filtered = activity_id != ALL_ACTIVITIES
     if not entries:
         # The page may have emptied under us — fall back to the first one rather
         # than stranding the user on an offset past the end.
         if offset > 0:
-            await _render_page(callback, api, 0, notice=notice)
+            await _render_page(callback, api, 0, activity_id, notice=notice)
             return
-        await edit_message(callback, f"{notice}\n\n{EMPTY}" if notice else EMPTY)
+        empty = EMPTY_FOR_ACTIVITY if filtered else EMPTY
+        await edit_message(
+            callback,
+            f"{notice}\n\n{empty}" if notice else empty,
+            # Keeps the way back to the activity; no keyboard at all otherwise.
+            history_keyboard(
+                [], offset=0, page_size=PAGE_SIZE, has_more=False, activity_id=activity_id
+            )
+            if filtered
+            else None,
+        )
         return
 
-    header = format_history_header(offset, PAGE_SIZE)
+    # Every row of a narrowed page belongs to the one activity, so the first
+    # row's name is the heading and no extra call is needed to learn it.
+    header = format_history_header(
+        offset,
+        PAGE_SIZE,
+        entries[0].activity_name if filtered else None,
+    )
     await edit_message(
         callback,
         f"{notice}\n\n{header}" if notice else header,
@@ -274,6 +312,7 @@ async def _render_page(
             offset=offset,
             page_size=PAGE_SIZE,
             has_more=has_more,
+            activity_id=activity_id,
         ),
     )
 
@@ -281,8 +320,7 @@ async def _render_page(
 async def _find(
     api: HabitTrackerClient,
     identity: Identity,
-    log_id: int,
-    offset: int,
+    where: HistoryCB | LogEditCB | LogDeleteCB,
 ) -> LogEntry | None:
     """Locate one entry on its page.
 
@@ -291,8 +329,13 @@ async def _find(
     keeps what is shown honest, and doubles as the ownership check: the API only
     ever lists this user's own entries.
     """
-    page = await _fetch_page(api, identity, offset=offset)
+    page = await _fetch_page(
+        api,
+        identity,
+        offset=where.offset,
+        activity_id=where.activity_id,
+    )
     if isinstance(page, str):
         return None
     entries, _ = page
-    return next((entry for entry in entries if entry.id == log_id), None)
+    return next((entry for entry in entries if entry.id == where.log_id), None)

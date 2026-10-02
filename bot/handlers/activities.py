@@ -1,5 +1,7 @@
 """The ``/new`` flow: create an activity by naming it and giving it a unit."""
 
+from html import escape
+
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -91,5 +93,6 @@ async def on_unit(
 
     await state.clear()
     await message.answer(
-        f"✅ Added <b>{activity.name}</b> measured in {activity.unit}. Send /log to record some."
+        f"✅ Added <b>{escape(activity.name)}</b> measured in {escape(activity.unit)}. "
+        "Send /log to record some."
     )

@@ -11,7 +11,7 @@ from typing import Any, Self
 import httpx
 
 from bot.identity import Identity
-from bot.schemas import Activity, Log, LogEntry, Summary
+from bot.schemas import Activity, ActivityDetail, Log, LogEntry, Summary
 
 
 class ApiError(Exception):
@@ -124,6 +124,39 @@ class HabitTrackerClient:
         )
         return Activity.model_validate(payload)
 
+    async def get_activity(self, identity: Identity, *, activity_id: int) -> ActivityDetail:
+        """Return one of this user's activities with its number of entries."""
+        payload = await self._request("GET", f"/activities/{activity_id}", identity=identity)
+        return ActivityDetail.model_validate(payload)
+
+    async def update_activity(
+        self,
+        identity: Identity,
+        *,
+        activity_id: int,
+        name: str | None = None,
+        unit: str | None = None,
+    ) -> Activity:
+        """Rename an activity or change its unit. Raises 409 if the name is taken.
+
+        Only the fields actually given are sent: the API rejects an explicit
+        ``null``, and an omitted field is how "leave it alone" is spelled.
+        """
+        changes = {
+            field: value for field, value in (("name", name), ("unit", unit)) if value is not None
+        }
+        payload = await self._request(
+            "PATCH",
+            f"/activities/{activity_id}",
+            identity=identity,
+            json=changes,
+        )
+        return Activity.model_validate(payload)
+
+    async def delete_activity(self, identity: Identity, *, activity_id: int) -> None:
+        """Delete an activity together with every entry logged under it."""
+        await self._request("DELETE", f"/activities/{activity_id}", identity=identity)
+
     async def create_log(
         self,
         identity: Identity,
@@ -151,17 +184,22 @@ class HabitTrackerClient:
         *,
         limit: int,
         offset: int = 0,
+        activity_id: int | None = None,
     ) -> list[LogEntry]:
         """Return a page of this user's entries, newest first.
 
         Ordering is the API's (date descending, id descending as the
-        tiebreaker); it is never re-sorted here.
+        tiebreaker); it is never re-sorted here. ``activity_id`` narrows the
+        page to one activity.
         """
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if activity_id is not None:
+            params["activity_id"] = activity_id
         payload = await self._request(
             "GET",
             "/logs",
             identity=identity,
-            params={"limit": limit, "offset": offset},
+            params=params,
         )
         return [LogEntry.model_validate(item) for item in payload]
 

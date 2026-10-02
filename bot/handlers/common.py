@@ -16,6 +16,7 @@ HELP_TEXT = (
     "/history — edit or delete recent entries\n"
     "/summary — totals for the last few days\n"
     "/new — add a new activity\n"
+    "/habits — rename, re-unit or delete an activity\n"
     "/cancel — abandon what we were doing"
 )
 

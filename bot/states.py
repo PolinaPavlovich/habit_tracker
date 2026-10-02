@@ -29,3 +29,14 @@ class HistoryStates(StatesGroup):
     """
 
     waiting_new_amount = State()
+
+
+class HabitStates(StatesGroup):
+    """The ``/habits`` flow, while waiting for a replacement name or unit.
+
+    Two states rather than one shared "waiting for text": the handler that
+    answers decides which field gets overwritten, so the state has to say it.
+    """
+
+    waiting_new_name = State()
+    waiting_new_unit = State()

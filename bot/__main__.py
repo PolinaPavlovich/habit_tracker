@@ -17,8 +17,10 @@ logger = logging.getLogger(__name__)
 
 COMMANDS: tuple[BotCommand, ...] = (
     BotCommand(command="log", description="Record an activity"),
+    BotCommand(command="history", description="Edit or delete recent entries"),
     BotCommand(command="summary", description="Totals for the last few days"),
     BotCommand(command="new", description="Add a new activity"),
+    BotCommand(command="habits", description="Rename, re-unit or delete an activity"),
     BotCommand(command="cancel", description="Abandon the current step"),
 )
 
