@@ -5,6 +5,7 @@ import { AppLayout } from './components/AppLayout'
 import { RequireAuth } from './components/RequireAuth'
 import { CreateHabit } from './routes/CreateHabit'
 import { Dashboard } from './routes/Dashboard'
+import { EditHabit } from './routes/EditHabit'
 import { History } from './routes/History'
 import { NotFound } from './routes/NotFound'
 import { ScanQr } from './routes/ScanQr'
@@ -33,6 +34,7 @@ export function App() {
           <Route element={<RequireAuth />}>
             <Route index element={<Dashboard />} />
             <Route path="habits/new" element={<CreateHabit />} />
+            <Route path="habits/:id/edit" element={<EditHabit />} />
             <Route path="history" element={<History />} />
             {/* Telegram-only, and Telegram always satisfies the gate. */}
             <Route path="scan" element={<ScanQr />} />

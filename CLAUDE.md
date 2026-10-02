@@ -17,7 +17,12 @@ We have two main tables in the database:
 ## Required Endpoints
 - `POST /activities` — create a new activity.
 - `GET /activities` — get a list of all activities.
+- `GET /activities/{id}` — one activity plus its `entries_count`.
+- `PATCH /activities/{id}` — rename it and/or change its unit.
+- `DELETE /activities/{id}` — delete it and every entry logged under it.
 - `POST /logs` — add an entry to the journal.
+- `GET /logs` — paged entries, optionally filtered with `?activity_id=`.
+- `PATCH /logs/{id}` / `DELETE /logs/{id}` — edit an entry's amount / delete it.
 - `GET /logs/summary` — get aggregated statistics for the last 7 days (sum of amount grouped by activity_id).
 
 > **No trailing slashes on collection routes.** See the 2026-08-29 decisions log — a trailing slash is unroutable behind the AWS Lambda Function URL.
@@ -42,6 +47,7 @@ habit_tracker/
 │   ├── client.py
 │   ├── handlers/           # one module per flow
 │   └── ...
+├── tests/                  # pytest, API only (needs the local Postgres)
 ├── alembic/
 ├── alembic.ini
 ├── .env
@@ -94,7 +100,7 @@ flowchart TD
 - **Sessions:** one `AsyncSession` per request via `get_session`, committing on success and rolling back on exception. CRUD methods `flush`, never `commit`.
 - **Alembic:** async template; `alembic.ini` leaves `sqlalchemy.url` blank and `alembic/env.py` sources it from `app.core.config.settings`. Baseline revision `0001_initial`.
 - **Docker:** `python:3.12-slim` (not 3.14 — wider wheel availability), non-root `appuser`. `entrypoint.sh` runs `alembic upgrade head` before uvicorn. Compose publishes `5432:5432` so the postgres MCP server can reach the DB from the host.
-- **Tests:** deliberately deferred; no `tests/` package yet.
+- **Tests:** were deferred at this point; added on 2026-10-02, see that entry.
 
 ### Files added beyond the tree above (approved)
 `alembic.ini`, `entrypoint.sh`, `.env.example`, `app/api/routers/`, `app/db/{base,session}.py`, `app/crud/base.py`, and `__init__.py` per package.
@@ -105,6 +111,7 @@ bin/dev                                   # local Postgres + migrations + seed +
 .venv/bin/uvicorn app.main:app --reload   # API on :8000, docs at /docs
 .venv/bin/alembic upgrade head            # apply migrations
 docker compose up --build                 # full stack (needs Docker installed)
+docker compose up -d db && .venv/bin/python -m pytest   # API tests (pip install -r requirements-dev.txt first)
 ```
 ## Telegram Bot Architecture
 - **Framework:** `aiogram` (v3.x) for fully asynchronous Telegram integration.
@@ -279,3 +286,34 @@ Built in the order below; each step was verified against a real PostgreSQL 16 co
 - **The database is addressed by `POSTGRES_*`, never a `DATABASE_URL`** — `Settings` ignores that name. GitHub secrets: `STAGING_POSTGRES_{HOST,USER,PASSWORD,DB}` and `PROD_POSTGRES_{HOST,USER,PASSWORD,DB}`; the port is hardcoded to 5432. They are forwarded with value-less `-e NAME` flags so the password never sits on a command line.
 - **`INTERNAL_API_KEY`, `TELEGRAM_BOT_TOKEN` and `JWT_SECRET` are dummy values in that step.** `Settings` has no defaults for them and `alembic/env.py` imports it; migrations never read them.
 - **The database must accept connections from GitHub-hosted runners** for this step to work.
+
+## Decisions Log (2026-10-02, full CRUD for activities and entries)
+
+### Backend
+- **`GET` / `PATCH` / `DELETE /activities/{activity_id}` added.** All three resolve the row through `activity_crud.get_for_user` and report somebody else's activity with the same 404 wording as a missing one (`Activity with id {id} does not exist.`), never 403.
+- **Deleting an activity is permanent and takes its entries with it**, through the existing `ON DELETE CASCADE` on `logs.activity_id`. No migration, no archive column. Archiving was considered and rejected for now: it needs a column, a filter on every query and an un-archive screen in both clients.
+- **`GET /activities/{id}` returns `entries_count`** so a client can say what a delete will destroy *before* the user confirms. The list endpoint does not carry it.
+- **`ActivityUpdate` takes `name` and/or `unit`, `extra="forbid"`, and rejects an empty body and an explicit `null`.** `CRUDBase.update` writes every field that was *sent*, so a `null` let through would reach PostgreSQL as a NOT NULL violation instead of a 422.
+- **Rename checks the name against the caller's *other* activities only**, so re-sending the current name is not a 409.
+- **Changing the unit relabels, it does not convert.** `5 km` becomes `5 miles`. Both clients say so next to the field.
+- **`GET /logs?activity_id=`** is an extra filter on top of owner scoping, not a replacement. Naming another user's activity yields an empty page, not a 404.
+
+### Tests
+- **`tests/` is an approved top-level directory**, API tests only. `requirements-dev.txt` holds pytest so the Lambda image does not grow.
+- **`tests/conftest.py` pins the environment before importing `app`** and refuses to run unless the host is local and the database is `habit_tracker_test` — every test truncates all tables, and `.env` points at AWS.
+- **One event loop for the whole run** (`pytest.ini`): the app's engine pools asyncpg connections, which cannot move between loops.
+
+### Bot
+- **`/habits`** lists activities; one tap opens Rename, Change unit, Entries, Delete. Delete is two taps and its prompt states the entry count.
+- **History callbacks carry `activity_id` (`0` = all).** The filter rides in the callback, not FSM state, so an old message still knows which list it belongs to. The "Entries" button of an activity is just `HistoryPageCB(offset=0, activity_id=…)`.
+- **Adding a field to a `CallbackData` kills every button already in chats** — aiogram parses strictly by field count. `bot/handlers/fallback.py`, last in `ROUTERS`, answers any unclaimed callback with "This menu is out of date" instead of a dead spinner. Keep it last.
+- **Typed-input handlers in `habits.py` skip text starting with `/`**, so a command sent mid-rename reaches its own router instead of becoming the new name. The older flows do not do this yet.
+- **A 409 on rename keeps the state** so the user can type another name; a 404 clears it.
+- **`COMMANDS` gained `habits` and `history`**, but `set_my_commands` only runs on the polling path, so on Lambda the menu does not update by itself.
+
+### Frontend
+- **`/habits/:id/edit`** holds rename, change unit, "View entries" and delete. The dashboard stays the list of habits; each card links to its edit page.
+- **`HabitForm` is shared by create and edit** and owns Telegram's MainButton — mount only one.
+- **`ConfirmButton` is an inline two-tap delete, not a modal.** A modal needs focus trapping to work with a TV remote, and Telegram's `showConfirm` does not exist in a plain browser.
+- **History rows edit inline with ordinary buttons**, not the MainButton, for the same single-owner reason.
+- **The history filter lives in the URL (`?habit=`)**; changing it drops `offset`. A page emptied by a delete steps back one page.

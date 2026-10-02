@@ -14,6 +14,7 @@ import { API_BASE } from '../env'
 import { authHeader, useAuthStore } from '../stores/authStore'
 import type {
   Activity,
+  ActivityDetail,
   LogListItem,
   QrInitResponse,
   QrPollResponse,
@@ -122,11 +123,26 @@ export const api = {
   createActivity: (name: string, unit: string) =>
     requireBody<Activity>('/activities', { method: 'POST', body: { name, unit } }),
 
+  getActivity: (activityId: number, signal?: AbortSignal) =>
+    requireBody<ActivityDetail>(`/activities/${activityId}`, { signal }),
+
+  /** Send only what changed: the backend rejects an empty body and unknown fields. */
+  updateActivity: (activityId: number, changes: { name?: string; unit?: string }) =>
+    requireBody<Activity>(`/activities/${activityId}`, { method: 'PATCH', body: changes }),
+
+  /** Permanent, and it takes every entry logged under the habit with it. */
+  deleteActivity: (activityId: number) =>
+    request<null>(`/activities/${activityId}`, { method: 'DELETE' }),
+
   getSummary: (days: number, signal?: AbortSignal) =>
     requireBody<SummaryResponse>(`/logs/summary?days=${days}`, { signal }),
 
-  listLogs: (limit: number, offset: number, signal?: AbortSignal) =>
-    requireBody<LogListItem[]>(`/logs?limit=${limit}&offset=${offset}`, { signal }),
+  /** `activityId` narrows the page to one habit; `null` means every habit. */
+  listLogs: (limit: number, offset: number, activityId: number | null, signal?: AbortSignal) =>
+    requireBody<LogListItem[]>(
+      `/logs?limit=${limit}&offset=${offset}${activityId === null ? '' : `&activity_id=${activityId}`}`,
+      { signal },
+    ),
 
   /** `amount` is a decimal string — stringifying a number here would defeat the point. */
   createLog: (activityId: number, amount: string, date?: string) =>
@@ -134,6 +150,10 @@ export const api = {
       method: 'POST',
       body: { activity_id: activityId, amount, ...(date ? { date } : {}) },
     }),
+
+  /** Only the amount is editable, and it travels as a decimal string. */
+  updateLog: (logId: number, amount: string) =>
+    requireBody<{ id: number }>(`/logs/${logId}`, { method: 'PATCH', body: { amount } }),
 
   deleteLog: (logId: number) => request<null>(`/logs/${logId}`, { method: 'DELETE' }),
 

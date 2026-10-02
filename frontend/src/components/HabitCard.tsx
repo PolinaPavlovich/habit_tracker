@@ -1,4 +1,5 @@
 import { Suspense, lazy, useState } from 'react'
+import { Link } from 'react-router-dom'
 
 import { forDisplay, normaliseAmount, sumAmounts } from '../lib/decimal'
 import { todayISO } from '../lib/time'
@@ -93,8 +94,13 @@ export function HabitCard({ habit, onLogged }: HabitCardProps) {
         </div>
       ))}
 
-      <div className="hint">
-        {forDisplay(habit.total)} {habit.unit} over 7 days · {habit.entriesCount} entries
+      <div className="row row--spread">
+        <span className="hint">
+          {forDisplay(habit.total)} {habit.unit} over 7 days · {habit.entriesCount} entries
+        </span>
+        <Link className="button button--quiet" to={`/habits/${habit.activityId}/edit`}>
+          Edit
+        </Link>
       </div>
     </section>
   )

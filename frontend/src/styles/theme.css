@@ -93,8 +93,17 @@ body {
   margin-top: 10px;
 }
 
+.row--spread {
+  justify-content: space-between;
+}
+
+.row--wrap {
+  flex-wrap: wrap;
+}
+
 input[type='text'],
-input[type='number'] {
+input[type='number'],
+select {
   flex: 1;
   min-width: 0;
   padding: 9px 10px;
@@ -124,6 +133,21 @@ input[type='number'] {
   background: transparent;
   color: var(--link);
   padding: 4px 8px;
+}
+
+.button--danger {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.button--quiet.button--danger {
+  background: transparent;
+  color: var(--danger);
+}
+
+/* A plain link in running text, e.g. "View entries". */
+.link {
+  color: var(--link);
 }
 
 /*

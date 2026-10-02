@@ -7,6 +7,12 @@ export interface Activity {
   created_at: string
 }
 
+/** One habit as `GET /activities/{id}` returns it. */
+export interface ActivityDetail extends Activity {
+  /** How many journal entries a delete would take with it. */
+  entries_count: number
+}
+
 export interface DailyBucket {
   /** Calendar date, `YYYY-MM-DD`. Used as a stable React key. */
   date: string
